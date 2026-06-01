@@ -2,7 +2,7 @@
 
 # Ema Powerbank
 
-Ema Powerbank 是一个 Gemini API token 中转站，使用 React、Express 和 SQLite 构建。它对外暴露 Gemini REST 形状的 `/api/v1*` 端点，不做 OpenAI 兼容协议转换，核心职责是替换上游认证、转发请求、记录审计日志、统计用量并按余额计费。
+Ema Powerbank 是一个 Gemini API token 中转站，使用 TypeScript、React、Express 和 SQLite 构建。它对外暴露 Gemini REST 形状的 `/api/v1*` 端点，不做 OpenAI 兼容协议转换，核心职责是替换上游认证、转发请求、记录审计日志、统计用量并按余额计费。
 
 ## 特性
 
@@ -20,6 +20,7 @@ Ema Powerbank 是一个 Gemini API token 中转站，使用 React、Express 和 
 ## 技术栈
 
 - React 19
+- TypeScript
 - Vite 7
 - Express 5
 - better-sqlite3
@@ -73,6 +74,8 @@ export SESSION_COOKIE_SECURE=false
 
 npm ci
 npm run build
+# 构建产物已存在的运行镜像里，可以选择裁剪 devDependencies。
+npm prune --omit=dev
 npm start
 ```
 
@@ -229,7 +232,7 @@ request-logs/
 
 ## 生产部署
 
-构建前端：
+构建前端和后端：
 
 ```bash
 npm run build
@@ -240,6 +243,8 @@ npm run build
 ```bash
 NODE_ENV=production npm start
 ```
+
+`npm run build` 会把 Vite 前端输出到 `dist/`，并把 Express 后端编译到 `dist-server/`。`npm start` 运行的是 `node dist-server/index.js`，因此只要构建产物已经存在，生产运行环境可以省略 devDependencies。
 
 生产模式下 Express 会服务 `dist/` 静态文件，并继续在同一端口提供 `/api` 后端接口和 Gemini 透传接口。
 
@@ -255,13 +260,19 @@ NODE_ENV=production npm start
 
 ## 验证
 
+类型检查：
+
+```bash
+npm run typecheck
+```
+
 构建检查：
 
 ```bash
 npm run build
 ```
 
-后端 smoke test：
+构建后的后端 smoke test：
 
 ```bash
 npm run smoke
