@@ -166,6 +166,10 @@ code {
   animation: auth-tab-pop 180ms ease both;
 }
 
+.provider-mode-toggle button {
+  font-weight: 800;
+}
+
 .form-stack {
   display: grid;
   gap: 14px;
@@ -1503,6 +1507,26 @@ th {
   background: var(--blue-600);
   color: #10233f;
   box-shadow: 0 0 0 1px rgba(168, 199, 250, 0.26), 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
+:root[data-theme="dark"] .provider-mode-toggle {
+  background: rgba(15, 17, 21, 0.62);
+  border-color: var(--line-strong);
+}
+
+:root[data-theme="dark"] .provider-mode-toggle button {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .provider-mode-toggle button:not(.active):hover {
+  background: rgba(168, 199, 250, 0.1);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .provider-mode-toggle button.active {
+  background: var(--blue-600);
+  color: #10233f;
+  box-shadow: 0 0 0 1px rgba(168, 199, 250, 0.26), 0 8px 18px rgba(0, 0, 0, 0.2);
 }
 
 td,
