@@ -1353,7 +1353,7 @@ function ProviderForm({ provider, reload, t }) {
             )}
           </div>
         )}
-        <div className="segmented compact" role="tablist" aria-label="provider type">
+        <div className="segmented compact provider-mode-toggle" role="tablist" aria-label="provider type">
           <button className={mode === "ai_studio" ? "active" : ""} onClick={() => setMode("ai_studio")} type="button">
             AI Studio
           </button>
