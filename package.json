@@ -1,0 +1,28 @@
+{
+  "name": "ema-powerbank",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch-path=server server/index.js",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/index.js",
+    "smoke": "node server/smoke-test.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.33.0",
+    "better-sqlite3": "^12.4.6",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.5.0",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.1",
+    "react-dom": "^19.2.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "vite": "^7.2.7"
+  }
+}
