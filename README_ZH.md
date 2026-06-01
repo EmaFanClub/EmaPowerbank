@@ -57,7 +57,7 @@ ADMIN_PASSWORD=admin123456
 | `PORT` | `8787` | Web 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 后使用 `dist/` 静态资源 |
 | `JWT_SECRET` | `development-only-change-me` | 登录 session 签名密钥，生产环境必须设置 |
-| `SESSION_COOKIE_SECURE` | `NODE_ENV=production` 时为 `true`，否则为 `false` | 登录 session cookie 是否使用 `Secure` 属性 |
+| `SESSION_COOKIE_SECURE` | 未设置时按 `NODE_ENV` 推导：生产环境为 `true`，否则为 `false` | 覆盖登录 session cookie 是否使用 `Secure` 属性 |
 | `ADMIN_USERNAME` | `admin` | 首次初始化管理员用户名 |
 | `ADMIN_PASSWORD` | `admin123456` | 首次初始化管理员密码 |
 
@@ -76,7 +76,7 @@ npm run build
 npm start
 ```
 
-如果通过 HTTPS 访问，请保持 `SESSION_COOKIE_SECURE=true`。只有纯 HTTP 部署才设置为 `false`，否则浏览器会拒收生产环境的 session cookie，登录后就会出现 `Not authenticated`。
+`SESSION_COOKIE_SECURE` 的优先级高于 `NODE_ENV` 推导出的默认值。如果通过 HTTPS 访问，请保持 `true`。只有纯 HTTP 部署才设置为 `false`，否则浏览器会拒收生产环境的 session cookie，登录后就会出现 `Not authenticated`。
 
 ## 管理员配置
 

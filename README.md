@@ -57,7 +57,7 @@ Log in as the admin, configure an upstream provider, set user balances, and user
 | `PORT` | `8787` | Web server port |
 | `NODE_ENV` | `development` | Set to `production` to serve the built `dist/` frontend |
 | `JWT_SECRET` | `development-only-change-me` | Session signing secret. Must be changed in production |
-| `SESSION_COOKIE_SECURE` | `true` when `NODE_ENV=production`, otherwise `false` | Whether the login session cookie uses the `Secure` attribute |
+| `SESSION_COOKIE_SECURE` | Derived from `NODE_ENV` when unset: `true` in production, otherwise `false` | Overrides whether the login session cookie uses the `Secure` attribute |
 | `ADMIN_USERNAME` | `admin` | Admin username used only during first database initialization |
 | `ADMIN_PASSWORD` | `admin123456` | Admin password used only during first database initialization |
 
@@ -76,7 +76,7 @@ npm run build
 npm start
 ```
 
-Keep `SESSION_COOKIE_SECURE=true` when serving over HTTPS. Set it to `false` only for plain-HTTP deployments; otherwise browsers will reject the production session cookie and the app will show `Not authenticated` after login.
+`SESSION_COOKIE_SECURE` has priority over the `NODE_ENV` default. Keep it `true` when serving over HTTPS. Set it to `false` only for plain-HTTP deployments; otherwise browsers will reject the production session cookie and the app will show `Not authenticated` after login.
 
 ## Admin Configuration
 
