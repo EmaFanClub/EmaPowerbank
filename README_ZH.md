@@ -1,0 +1,289 @@
+[English](README.md) | [简体中文](README_ZH.md)
+
+# Ema Powerbank
+
+Ema Powerbank 是一个 Gemini API token 中转站，使用 React、Express 和 SQLite 构建。它对外暴露 Gemini REST 形状的 `/api/v1*` 端点，不做 OpenAI 兼容协议转换，核心职责是替换上游认证、转发请求、记录审计日志、统计用量并按余额计费。
+
+## 特性
+
+- 单端口服务：前端页面和后端 API 默认共用 `http://localhost:8787`，后端接口统一以 `/api` 开头。
+- 透传 Gemini REST：用户请求路径保持 Gemini API 形状，只需要把 Base URL 改成本站的 `/api` 地址。
+- 用户系统：用户名和密码注册/登录，无额外认证流程。
+- API key 管理：用户可创建、复制、删除自己的 `ep_` 前缀 API key。
+- 管理控制台：唯一管理员可配置上游、维护模型价格、调整余额、删除用户。
+- 上游支持：Google AI Studio API Key 和 Vertex AI 服务账号 JSON。
+- 计费统计：按日期展示费用统计，支持模型多选筛选、成功请求/总请求数、token 分项和费用分项。
+- 全局统计：累计费用、今日花费、请求数、请求成功率、累计 Token 数、缓存命中率。
+- SQLite 持久化：用户、密钥、上游配置、模型价格、用量记录都存储在 `data/relay.sqlite`。
+- 审计文件：每个透传请求都会在 `request-logs/` 保存一份 JSON，文件名包含时间戳和用户 id。
+
+## 技术栈
+
+- React 19
+- Vite 7
+- Express 5
+- better-sqlite3
+- Google GenAI SDK
+- google-auth-library
+
+建议使用 Node.js 20 或更新版本。
+
+## 快速开始
+
+```bash
+npm install
+npm run dev
+```
+
+开发服务默认启动在：
+
+```text
+http://localhost:8787
+```
+
+首次启动时，如果数据库里还没有管理员账号，会自动创建：
+
+```text
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=admin123456
+```
+
+登录后进入管理控制台，先完成上游配置，再给用户设置余额，用户即可通过自己的 API key 访问 Gemini API。
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8787` | Web 服务端口 |
+| `NODE_ENV` | `development` | 设为 `production` 后使用 `dist/` 静态资源 |
+| `JWT_SECRET` | `development-only-change-me` | 登录 session 签名密钥，生产环境必须设置 |
+| `ADMIN_USERNAME` | `admin` | 首次初始化管理员用户名 |
+| `ADMIN_PASSWORD` | `admin123456` | 首次初始化管理员密码 |
+
+生产环境示例：
+
+```bash
+export JWT_SECRET="replace-with-a-long-random-secret"
+export ADMIN_USERNAME="admin"
+export ADMIN_PASSWORD="replace-with-a-strong-password"
+export PORT=8787
+
+npm ci
+npm run build
+npm start
+```
+
+## 管理员配置
+
+管理员登录后需要先配置一个上游。
+
+AI Studio：
+
+- 选择 `AI Studio`
+- 填写字符串形式的 `API Key`
+- 不需要填写 location
+
+Vertex AI：
+
+- 选择 `Vertex AI`
+- 填写 `Location`，默认可用 `global`
+- 填写服务账号 JSON
+- 服务账号 JSON 必须包含 `project_id`
+- 服务账号需要具备调用 Vertex AI Gemini 模型的权限
+
+当前生效的上游会在管理面板显示。AI Studio 和 Vertex AI 的凭证会存储在 SQLite 的 `settings` 表中，请确保部署目录和数据库文件权限可靠。
+
+## 默认模型价格
+
+首次启动会写入默认计费模型：
+
+| 模型 | 未缓存输入 | 输出 | 缓存输入 | 嵌入 |
+| --- | ---: | ---: | ---: | ---: |
+| `gemini-3.5-flash` | `$1.50/M` | `$9.00/M` | `$0.15/M` | `-` |
+| `gemini-3.1-pro-preview` | `$2.00/M` | `$12.00/M` | `$0.20/M` | `-` |
+| `gemini-embedding-2` | `-` | `-` | `-` | `$0.20/M` |
+
+管理员可以在模型计费表里删除并重新新增模型价格。同一个模型 ID 不允许重复新增。价格为 `0` 或空的项目会被视为不可用，前端显示为 `-`。
+
+## 计费规则
+
+价格单位为每 1M tokens 或 characters。
+
+- 未缓存输入：`promptTokenCount - cachedContentTokenCount`
+- 输出：`thoughtsTokenCount + candidatesTokenCount`
+- 缓存输入：`cachedContentTokenCount`
+- 嵌入：`billableCharacterCount`
+
+只有上游返回 `2xx` 时才会扣费。没有配置价格或价格为 `0` 的模型不会扣费，但请求仍会记录审计日志和用量记录。
+
+Embedding 模型会统一把用量归到“嵌入”字段。对于没有 `billableCharacterCount` 的返回，服务会用返回里的 token 统计回填到嵌入用量，避免把 embedding 用量记到输入或输出里。
+
+## 用户接入
+
+用户登录面板后可以：
+
+- 查看余额、累计费用、今日花费、请求成功率
+- 创建和复制 API key
+- 复制 Base URL
+- 查看可用模型和对应价格
+- 用内置 API 测试面板发送测试请求
+- 查看按日期的费用统计
+
+Base URL 填写：
+
+```text
+http://localhost:8787/api
+```
+
+生产部署时请替换为你的域名，例如：
+
+```text
+https://example.com/api
+```
+
+请求认证支持以下方式：
+
+- `x-goog-api-key: ep_xxx`
+- `x-api-key: ep_xxx`
+- `Authorization: Bearer ep_xxx`
+- URL query：`?key=ep_xxx`
+
+推荐使用 header，避免 key 出现在访问日志或浏览器历史里。
+
+## 调用示例
+
+生成内容：
+
+```bash
+curl "http://localhost:8787/api/v1beta/models/gemini-3.5-flash:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: ep_xxx" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          { "text": "Who are you?" }
+        ]
+      }
+    ]
+  }'
+```
+
+Embedding：
+
+```bash
+curl "http://localhost:8787/api/v1beta/models/gemini-embedding-2:batchEmbedContents" \
+  -H "Content-Type: application/json" \
+  -H "x-goog-api-key: ep_xxx" \
+  -d '{
+    "requests": [
+      {
+        "model": "gemini-embedding-2",
+        "content": {
+          "role": "user",
+          "parts": [
+            { "text": "hello" }
+          ]
+        }
+      }
+    ]
+  }'
+```
+
+AI Studio 上游会直接转发到 `generativelanguage.googleapis.com`。Vertex AI 上游会将 `/api/v1beta/models/{model}:...` 自动映射到当前服务账号的 `project_id`、配置的 `location` 和 Vertex publisher model 路径。
+
+对于 `gemini-embedding-2:batchEmbedContents`，Vertex AI 上游会自动转换为 Vertex 的 `embedContent` 形状，并把响应转换回批量 embedding 形状。
+
+## 数据目录
+
+运行后会生成两个目录：
+
+```text
+data/relay.sqlite
+request-logs/
+```
+
+`data/relay.sqlite` 保存：
+
+- 用户和管理员账号
+- 用户 API key 哈希和新 key 的可复制值
+- 上游配置
+- 模型价格
+- 用户余额
+- 用量记录
+
+`request-logs/` 保存每个透传请求的 JSON 审计文件，包含：
+
+- 请求路径、方法、headers、请求体
+- 上游 URL，敏感 query 会被脱敏
+- 响应状态和响应体
+- 提取后的用量和费用
+
+注意：请求体和响应体会原样保存，可能包含用户敏感数据。生产环境请限制目录权限，并制定清理、归档和备份策略。
+
+## 生产部署
+
+构建前端：
+
+```bash
+npm run build
+```
+
+启动生产服务：
+
+```bash
+NODE_ENV=production npm start
+```
+
+生产模式下 Express 会服务 `dist/` 静态文件，并继续在同一端口提供 `/api` 后端接口和 Gemini 透传接口。
+
+建议：
+
+- 使用 HTTPS
+- 设置强 `JWT_SECRET`
+- 修改默认管理员密码
+- 限制 `data/` 和 `request-logs/` 的文件权限
+- 定期备份 `data/relay.sqlite`
+- 按需清理或归档 `request-logs/`
+- 如果放在反向代理后面，请确保请求体大小和超时设置适合模型响应
+
+## 验证
+
+构建检查：
+
+```bash
+npm run build
+```
+
+后端 smoke test：
+
+```bash
+npm run smoke
+```
+
+健康检查：
+
+```bash
+curl http://localhost:8787/api/health
+```
+
+返回示例：
+
+```json
+{
+  "ok": true,
+  "time": "2026-06-01T17:44:56.974Z"
+}
+```
+
+## 设计边界
+
+Ema Powerbank 只做 Gemini REST 透传和本地管理能力：
+
+- 不转换 OpenAI Chat Completions 或 Responses API
+- 不修改用户请求的底层语义
+- 不隐藏上游错误
+- 不实现多上游负载均衡
+
+如果需要兼容 OpenAI 协议，应在客户端或另一个网关层完成协议转换。

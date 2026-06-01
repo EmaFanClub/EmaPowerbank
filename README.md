@@ -1,21 +1,23 @@
+[English](README.md) | [简体中文](README_ZH.md)
+
 # Ema Powerbank
 
-Ema Powerbank 是一个 Gemini API token 中转站，使用 React、Express 和 SQLite 构建。它对外暴露 Gemini REST 形状的 `/api/v1*` 端点，不做 OpenAI 兼容协议转换，核心职责是替换上游认证、转发请求、记录审计日志、统计用量并按余额计费。
+Ema Powerbank is a Gemini API token relay built with React, Express, and SQLite. It exposes Gemini-shaped REST endpoints under `/api/v1*` and does not convert requests into another API protocol. Its job is to replace upstream authentication, forward requests, store audit logs, track usage, and charge user balances.
 
-## 特性
+## Features
 
-- 单端口服务：前端页面和后端 API 默认共用 `http://localhost:8787`，后端接口统一以 `/api` 开头。
-- 透传 Gemini REST：用户请求路径保持 Gemini API 形状，只需要把 Base URL 改成本站的 `/api` 地址。
-- 用户系统：用户名和密码注册/登录，无额外认证流程。
-- API key 管理：用户可创建、复制、删除自己的 `ep_` 前缀 API key。
-- 管理控制台：唯一管理员可配置上游、维护模型价格、调整余额、删除用户。
-- 上游支持：Google AI Studio API Key 和 Vertex AI 服务账号 JSON。
-- 计费统计：按日期展示费用统计，支持模型多选筛选、成功请求/总请求数、token 分项和费用分项。
-- 全局统计：累计费用、今日花费、请求数、请求成功率、累计 Token 数、缓存命中率。
-- SQLite 持久化：用户、密钥、上游配置、模型价格、用量记录都存储在 `data/relay.sqlite`。
-- 审计文件：每个透传请求都会在 `request-logs/` 保存一份 JSON，文件名包含时间戳和用户 id。
+- Single-port service: frontend and backend run on the same port, defaulting to `http://localhost:8787`.
+- `/api` backend prefix: application APIs and Gemini relay endpoints live under `/api`.
+- Gemini REST passthrough: clients keep the normal Gemini request shape and only change the Base URL.
+- User accounts: users register and log in with only username and password.
+- API key management: users can create, copy, and delete `ep_` prefixed relay keys.
+- Admin console: the single admin can configure upstream credentials, model pricing, user balances, and users.
+- Upstream support: Google AI Studio API keys and Vertex AI service account JSON.
+- Usage and cost reporting: daily cost chart, model filters, request success totals, token details, and cost details.
+- SQLite persistence: users, keys, upstream settings, pricing, balances, and usage records are stored in `data/relay.sqlite`.
+- Request audit logs: every relayed request is saved as JSON in `request-logs/` with timestamp and user id in the filename.
 
-## 技术栈
+## Stack
 
 - React 19
 - Vite 7
@@ -24,41 +26,41 @@ Ema Powerbank 是一个 Gemini API token 中转站，使用 React、Express 和 
 - Google GenAI SDK
 - google-auth-library
 
-建议使用 Node.js 20 或更新版本。
+Node.js 20 or newer is recommended.
 
-## 快速开始
+## Quick Start
 
 ```bash
 npm install
 npm run dev
 ```
 
-开发服务默认启动在：
+The development server starts at:
 
 ```text
 http://localhost:8787
 ```
 
-首次启动时，如果数据库里还没有管理员账号，会自动创建：
+On first launch, if no admin user exists, the server creates:
 
 ```text
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=admin123456
 ```
 
-登录后进入管理控制台，先完成上游配置，再给用户设置余额，用户即可通过自己的 API key 访问 Gemini API。
+Log in as the admin, configure an upstream provider, set user balances, and users can start calling Gemini through their relay API keys.
 
-## 环境变量
+## Environment Variables
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `PORT` | `8787` | Web 服务端口 |
-| `NODE_ENV` | `development` | 设为 `production` 后使用 `dist/` 静态资源 |
-| `JWT_SECRET` | `development-only-change-me` | 登录 session 签名密钥，生产环境必须设置 |
-| `ADMIN_USERNAME` | `admin` | 首次初始化管理员用户名 |
-| `ADMIN_PASSWORD` | `admin123456` | 首次初始化管理员密码 |
+| `PORT` | `8787` | Web server port |
+| `NODE_ENV` | `development` | Set to `production` to serve the built `dist/` frontend |
+| `JWT_SECRET` | `development-only-change-me` | Session signing secret. Must be changed in production |
+| `ADMIN_USERNAME` | `admin` | Admin username used only during first database initialization |
+| `ADMIN_PASSWORD` | `admin123456` | Admin password used only during first database initialization |
 
-生产环境示例：
+Production example:
 
 ```bash
 export JWT_SECRET="replace-with-a-long-random-secret"
@@ -71,86 +73,86 @@ npm run build
 npm start
 ```
 
-## 管理员配置
+## Admin Configuration
 
-管理员登录后需要先配置一个上游。
+The admin must configure one upstream provider before relay requests can succeed.
 
-AI Studio：
+AI Studio:
 
-- 选择 `AI Studio`
-- 填写字符串形式的 `API Key`
-- 不需要填写 location
+- Select `AI Studio`
+- Enter the string `API Key`
+- No location is required
 
-Vertex AI：
+Vertex AI:
 
-- 选择 `Vertex AI`
-- 填写 `Location`，默认可用 `global`
-- 填写服务账号 JSON
-- 服务账号 JSON 必须包含 `project_id`
-- 服务账号需要具备调用 Vertex AI Gemini 模型的权限
+- Select `Vertex AI`
+- Enter `Location`, usually `global`
+- Enter the service account JSON
+- The service account JSON must include `project_id`
+- The service account must have permission to call Vertex AI Gemini models
 
-当前生效的上游会在管理面板显示。AI Studio 和 Vertex AI 的凭证会存储在 SQLite 的 `settings` 表中，请确保部署目录和数据库文件权限可靠。
+The active provider is shown in the admin panel. AI Studio and Vertex AI credentials are stored in the SQLite `settings` table, so keep the deployment directory and database file permissions tight.
 
-## 默认模型价格
+## Default Model Pricing
 
-首次启动会写入默认计费模型：
+The first startup seeds these default pricing rows:
 
-| 模型 | 未缓存输入 | 输出 | 缓存输入 | 嵌入 |
+| Model | Uncached input | Output | Cached input | Embedding |
 | --- | ---: | ---: | ---: | ---: |
 | `gemini-3.5-flash` | `$1.50/M` | `$9.00/M` | `$0.15/M` | `-` |
 | `gemini-3.1-pro-preview` | `$2.00/M` | `$12.00/M` | `$0.20/M` | `-` |
 | `gemini-embedding-2` | `-` | `-` | `-` | `$0.20/M` |
 
-管理员可以在模型计费表里删除并重新新增模型价格。同一个模型 ID 不允许重复新增。价格为 `0` 或空的项目会被视为不可用，前端显示为 `-`。
+Admins can delete and add model pricing rows. A model ID cannot be added twice. Empty or zero prices are treated as unavailable and displayed as `-`.
 
-## 计费规则
+## Billing Rules
 
-价格单位为每 1M tokens 或 characters。
+Prices are per 1M tokens or characters.
 
-- 未缓存输入：`promptTokenCount - cachedContentTokenCount`
-- 输出：`thoughtsTokenCount + candidatesTokenCount`
-- 缓存输入：`cachedContentTokenCount`
-- 嵌入：`billableCharacterCount`
+- Uncached input: `promptTokenCount - cachedContentTokenCount`
+- Output: `thoughtsTokenCount + candidatesTokenCount`
+- Cached input: `cachedContentTokenCount`
+- Embedding: `billableCharacterCount`
 
-只有上游返回 `2xx` 时才会扣费。没有配置价格或价格为 `0` 的模型不会扣费，但请求仍会记录审计日志和用量记录。
+Users are charged only when the upstream response is `2xx`. Requests for unpriced models are still forwarded, audited, and counted, but they do not deduct balance.
 
-Embedding 模型会统一把用量归到“嵌入”字段。对于没有 `billableCharacterCount` 的返回，服务会用返回里的 token 统计回填到嵌入用量，避免把 embedding 用量记到输入或输出里。
+Embedding model usage is always normalized into the embedding bucket. If an upstream embedding response does not include `billableCharacterCount`, the relay falls back to returned token counts to avoid recording embedding usage as prompt or output usage.
 
-## 用户接入
+## User Integration
 
-用户登录面板后可以：
+After logging in, users can:
 
-- 查看余额、累计费用、今日花费、请求成功率
-- 创建和复制 API key
-- 复制 Base URL
-- 查看可用模型和对应价格
-- 用内置 API 测试面板发送测试请求
-- 查看按日期的费用统计
+- View balance, cumulative cost, today's cost, and request success rate
+- Create and copy API keys
+- Copy the Base URL
+- See available model IDs and prices
+- Send test requests from the built-in API test panel
+- View daily cost statistics
 
-Base URL 填写：
+Base URL:
 
 ```text
 http://localhost:8787/api
 ```
 
-生产部署时请替换为你的域名，例如：
+For production, replace it with your domain:
 
 ```text
 https://example.com/api
 ```
 
-请求认证支持以下方式：
+Relay authentication supports:
 
 - `x-goog-api-key: ep_xxx`
 - `x-api-key: ep_xxx`
 - `Authorization: Bearer ep_xxx`
-- URL query：`?key=ep_xxx`
+- URL query: `?key=ep_xxx`
 
-推荐使用 header，避免 key 出现在访问日志或浏览器历史里。
+Headers are recommended so keys do not appear in browser history or ordinary access logs.
 
-## 调用示例
+## API Examples
 
-生成内容：
+Generate content:
 
 ```bash
 curl "http://localhost:8787/api/v1beta/models/gemini-3.5-flash:generateContent" \
@@ -168,7 +170,7 @@ curl "http://localhost:8787/api/v1beta/models/gemini-3.5-flash:generateContent" 
   }'
 ```
 
-Embedding：
+Embedding:
 
 ```bash
 curl "http://localhost:8787/api/v1beta/models/gemini-embedding-2:batchEmbedContents" \
@@ -189,84 +191,84 @@ curl "http://localhost:8787/api/v1beta/models/gemini-embedding-2:batchEmbedConte
   }'
 ```
 
-AI Studio 上游会直接转发到 `generativelanguage.googleapis.com`。Vertex AI 上游会将 `/api/v1beta/models/{model}:...` 自动映射到当前服务账号的 `project_id`、配置的 `location` 和 Vertex publisher model 路径。
+AI Studio upstream requests are forwarded to `generativelanguage.googleapis.com`. Vertex AI upstream requests map `/api/v1beta/models/{model}:...` to the configured service account project, location, and Vertex publisher model path.
 
-对于 `gemini-embedding-2:batchEmbedContents`，Vertex AI 上游会自动转换为 Vertex 的 `embedContent` 形状，并把响应转换回批量 embedding 形状。
+For `gemini-embedding-2:batchEmbedContents`, the Vertex AI upstream path is converted to Vertex `embedContent`, and the response is converted back to a batch embedding shape.
 
-## 数据目录
+## Data Directories
 
-运行后会生成两个目录：
+Runtime creates:
 
 ```text
 data/relay.sqlite
 request-logs/
 ```
 
-`data/relay.sqlite` 保存：
+`data/relay.sqlite` stores:
 
-- 用户和管理员账号
-- 用户 API key 哈希和新 key 的可复制值
-- 上游配置
-- 模型价格
-- 用户余额
-- 用量记录
+- Users and the admin account
+- API key hashes and copyable values for newly created keys
+- Upstream configuration
+- Model pricing
+- User balances
+- Usage records
 
-`request-logs/` 保存每个透传请求的 JSON 审计文件，包含：
+`request-logs/` stores one JSON audit file per relayed request, including:
 
-- 请求路径、方法、headers、请求体
-- 上游 URL，敏感 query 会被脱敏
-- 响应状态和响应体
-- 提取后的用量和费用
+- Request path, method, headers, and body
+- Upstream URL with sensitive query values redacted
+- Response status and body
+- Extracted usage and cost
 
-注意：请求体和响应体会原样保存，可能包含用户敏感数据。生产环境请限制目录权限，并制定清理、归档和备份策略。
+Request and response bodies are stored as-is and may contain user data. In production, restrict directory permissions and define a cleanup, archival, and backup policy.
 
-## 生产部署
+## Production Deployment
 
-构建前端：
+Build the frontend:
 
 ```bash
 npm run build
 ```
 
-启动生产服务：
+Start the production server:
 
 ```bash
 NODE_ENV=production npm start
 ```
 
-生产模式下 Express 会服务 `dist/` 静态文件，并继续在同一端口提供 `/api` 后端接口和 Gemini 透传接口。
+In production mode, Express serves the `dist/` frontend and continues to expose backend and relay APIs on the same port.
 
-建议：
+Recommended production checklist:
 
-- 使用 HTTPS
-- 设置强 `JWT_SECRET`
-- 修改默认管理员密码
-- 限制 `data/` 和 `request-logs/` 的文件权限
-- 定期备份 `data/relay.sqlite`
-- 按需清理或归档 `request-logs/`
-- 如果放在反向代理后面，请确保请求体大小和超时设置适合模型响应
+- Use HTTPS
+- Set a strong `JWT_SECRET`
+- Change the default admin password
+- Restrict permissions for `data/` and `request-logs/`
+- Back up `data/relay.sqlite`
+- Clean up or archive `request-logs/` as needed
+- If running behind a reverse proxy, configure request body size and timeout limits for model responses
 
-## 验证
+## Verification
 
-构建检查：
+Build:
 
 ```bash
 npm run build
 ```
 
-后端 smoke test：
+Smoke test:
 
 ```bash
 npm run smoke
 ```
 
-健康检查：
+Health check:
 
 ```bash
 curl http://localhost:8787/api/health
 ```
 
-返回示例：
+Example response:
 
 ```json
 {
@@ -275,13 +277,13 @@ curl http://localhost:8787/api/health
 }
 ```
 
-## 设计边界
+## Scope
 
-Ema Powerbank 只做 Gemini REST 透传和本地管理能力：
+Ema Powerbank is intentionally a Gemini REST relay plus local management app:
 
-- 不转换 OpenAI Chat Completions 或 Responses API
-- 不修改用户请求的底层语义
-- 不隐藏上游错误
-- 不实现多上游负载均衡
+- It does not convert OpenAI Chat Completions or Responses API requests
+- It does not change the semantic shape of user requests
+- It does not hide upstream errors
+- It does not implement multi-upstream load balancing
 
-如果需要兼容 OpenAI 协议，应在客户端或另一个网关层完成协议转换。
+If OpenAI-compatible protocol support is required, do that conversion in the client or in a separate gateway layer.
