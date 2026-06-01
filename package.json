@@ -4,15 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch-path=server server/index.js",
+    "dev": "tsx watch server/index.ts",
+    "typecheck": "tsc --noEmit",
     "build": "vite build",
-    "start": "NODE_ENV=production node server/index.js",
-    "smoke": "node server/smoke-test.js"
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "smoke": "tsx server/smoke-test.ts"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",
-    "better-sqlite3": "^12.4.6",
     "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.4.6",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "google-auth-library": "^10.5.0",
@@ -22,7 +23,16 @@
     "react-dom": "^19.2.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
     "vite": "^7.2.7"
   }
 }

@@ -1,4 +1,5 @@
 import express from "express";
+import type { NextFunction, Request, Response } from "express";
 import cookieParser from "cookie-parser";
 import path from "node:path";
 import fs from "node:fs";
@@ -12,7 +13,7 @@ import {
   listPricing,
   publicUser,
   saveProviderConfig,
-} from "./db.js";
+} from "./db";
 import {
   clearSessionCookie,
   createApiKey,
@@ -24,7 +25,7 @@ import {
   setSessionCookie,
   signSession,
   verifyPassword,
-} from "./auth.js";
+} from "./auth";
 import {
   adminDailyStats,
   adminDailyModelStats,
@@ -33,9 +34,10 @@ import {
   userDailyStats,
   userDailyModelStats,
   userModelStats,
-} from "./billing.js";
-import { createGoogleGenAIClient, normalizeProviderConfig } from "./googleProvider.js";
-import { proxyMiddlewares } from "./proxy.js";
+} from "./billing";
+import { createGoogleGenAIClient, normalizeProviderConfig } from "./googleProvider";
+import { proxyMiddlewares } from "./proxy";
+import type { HttpError, PricingDto, PublicUser, UserRow } from "./types";
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -74,18 +76,18 @@ function listAvailableModels() {
     }));
 }
 
-function requireFields(body, fields) {
+function requireFields(body: Record<string, unknown> | undefined, fields: string[]) {
   for (const field of fields) {
     if (!String(body?.[field] || "").trim()) {
-      const error = new Error(`${field} is required`);
+      const error = new Error(`${field} is required`) as HttpError;
       error.status = 400;
       throw error;
     }
   }
 }
 
-function asyncHandler(fn) {
-  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown> | unknown) {
+  return (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
 app.get("/api/health", (req, res) => {
@@ -119,11 +121,11 @@ app.post("/api/auth/register", asyncHandler(async (req, res) => {
       INSERT INTO users (username, password_hash, role, balance, created_at, updated_at)
       VALUES (?, ?, 'user', 0, ?, ?)
     `).run(username, passwordHash, ts, ts);
-    const user = db.prepare(`${userSelect} WHERE id = ?`).get(result.lastInsertRowid);
+    const user = db.prepare(`${userSelect} WHERE id = ?`).get(result.lastInsertRowid) as UserRow;
     setSessionCookie(res, signSession(user));
     return res.status(201).json({ user: publicUser(user) });
   } catch (error) {
-    if (String(error.message).includes("UNIQUE")) {
+    if (String((error as Error).message).includes("UNIQUE")) {
       return res.status(409).json({ error: "Username already exists" });
     }
     throw error;
@@ -133,7 +135,7 @@ app.post("/api/auth/register", asyncHandler(async (req, res) => {
 app.post("/api/auth/login", asyncHandler(async (req, res) => {
   requireFields(req.body, ["username", "password"]);
   const username = String(req.body.username).trim();
-  const row = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+  const row = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as UserRow | undefined;
   if (!row || !(await verifyPassword(String(req.body.password), row.password_hash))) {
     return res.status(401).json({ error: "Invalid username or password" });
   }
@@ -148,6 +150,7 @@ app.post("/api/auth/logout", (req, res) => {
 
 app.get("/api/me/overview", requireSession, (req, res) => {
   const today = isoNow().slice(0, 10);
+  const user = req.user!;
   const usageSummary = db.prepare(`
     SELECT
       COUNT(*) AS requestCount,
@@ -156,16 +159,21 @@ app.get("/api/me/overview", requireSession, (req, res) => {
       COALESCE(SUM(CASE WHEN usage_date = ? THEN cost ELSE 0 END), 0) AS todayCost
     FROM usage_records
     WHERE user_id = ?
-  `).get(today, req.user.id);
+  `).get(today, user.id) as {
+    requestCount: number | null;
+    successCount: number | null;
+    totalCost: number | null;
+    todayCost: number | null;
+  };
   const requestCount = Number(usageSummary.requestCount || 0);
   const successCount = Number(usageSummary.successCount || 0);
 
   res.json({
-    user: publicUser(req.user),
-    apiKeys: listUserApiKeys(req.user.id),
-    dailyStats: userDailyStats(req.user.id),
-    dailyModelStats: userDailyModelStats(req.user.id),
-    modelStats: userModelStats(req.user.id),
+    user: publicUser(user),
+    apiKeys: listUserApiKeys(user.id),
+    dailyStats: userDailyStats(user.id),
+    dailyModelStats: userDailyModelStats(user.id),
+    modelStats: userModelStats(user.id),
     usageSummary: {
       requestCount,
       successCount,
@@ -174,17 +182,18 @@ app.get("/api/me/overview", requireSession, (req, res) => {
       successRate: requestCount > 0 ? successCount / requestCount : 0,
     },
     availableModels: listAvailableModels(),
-    recentUsage: recentUsage(req.user.id),
+    recentUsage: recentUsage(user.id),
   });
 });
 
 app.post("/api/keys", requireSession, (req, res) => {
   try {
-    const created = createApiKey(req.user.id, req.body?.name);
+    const created = createApiKey(req.user!.id, req.body?.name);
     res.status(201).json(created);
   } catch (error) {
-    if (error.code === "API_KEY_ALIAS_CONFLICT") {
-      return res.status(409).json({ error: error.message });
+    const relayError = error as HttpError;
+    if (relayError.code === "API_KEY_ALIAS_CONFLICT") {
+      return res.status(409).json({ error: relayError.message });
     }
     throw error;
   }
@@ -195,12 +204,12 @@ app.delete("/api/keys/:id", requireSession, (req, res) => {
     UPDATE api_keys
     SET revoked_at = ?
     WHERE id = ? AND user_id = ? AND revoked_at IS NULL
-  `).run(isoNow(), req.params.id, req.user.id);
+  `).run(isoNow(), req.params.id, req.user!.id);
   res.json({ ok: result.changes > 0 });
 });
 
 app.get("/api/admin/overview", requireSession, requireAdmin, (req, res) => {
-  const users = db.prepare(`${userSelect} ORDER BY created_at DESC`).all().map(publicUser);
+  const users = (db.prepare(`${userSelect} ORDER BY created_at DESC`).all() as UserRow[]).map(publicUser);
   const today = isoNow().slice(0, 10);
   const totals = db.prepare(`
     SELECT
@@ -214,7 +223,7 @@ app.get("/api/admin/overview", requireSession, requireAdmin, (req, res) => {
       SUM(candidates_token_count) AS candidatesTokenCount,
       SUM(billable_character_count) AS billableCharacterCount
     FROM usage_records
-  `).get(today);
+  `).get(today) as Record<string, number | null>;
 
   res.json({
     users,
@@ -234,7 +243,7 @@ app.post("/api/admin/provider", requireSession, requireAdmin, (req, res) => {
     saveProviderConfig(config);
     res.json({ provider: getProviderConfig() });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: (error as Error).message });
   }
 });
 
@@ -257,15 +266,16 @@ app.post("/api/admin/pricing", requireSession, requireAdmin, (req, res) => {
     });
     res.status(201).json({ pricing: listPricing(), row });
   } catch (error) {
-    if (error.code === "PRICING_MODEL_CONFLICT") {
-      return res.status(409).json({ error: error.message });
+    const relayError = error as HttpError;
+    if (relayError.code === "PRICING_MODEL_CONFLICT") {
+      return res.status(409).json({ error: relayError.message });
     }
     throw error;
   }
 });
 
 app.delete("/api/admin/pricing/:id", requireSession, requireAdmin, (req, res) => {
-  deletePricing(req.params.id);
+  deletePricing(String(req.params.id));
   res.json({ pricing: listPricing() });
 });
 
@@ -282,20 +292,23 @@ app.patch("/api/admin/users/:id/balance", requireSession, requireAdmin, (req, re
     return res.status(400).json({ error: "balance or delta is required" });
   }
 
-  const user = db.prepare(`${userSelect} WHERE id = ?`).get(userId);
-  res.json({ user: publicUser(user), users: db.prepare(`${userSelect} ORDER BY created_at DESC`).all().map(publicUser) });
+  const user = db.prepare(`${userSelect} WHERE id = ?`).get(userId) as UserRow | undefined;
+  res.json({
+    user: publicUser(user),
+    users: (db.prepare(`${userSelect} ORDER BY created_at DESC`).all() as UserRow[]).map(publicUser),
+  });
 });
 
 app.delete("/api/admin/users/:id", requireSession, requireAdmin, (req, res) => {
   const userId = Number(req.params.id);
   if (!Number.isFinite(userId)) return res.status(400).json({ error: "Invalid user id" });
-  if (userId === req.user.id) return res.status(400).json({ error: "Cannot delete the current admin user" });
+  if (userId === req.user!.id) return res.status(400).json({ error: "Cannot delete the current admin user" });
 
-  const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(userId);
+  const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(userId) as { id: number } | undefined;
   if (!existing) return res.status(404).json({ error: "User not found" });
 
   db.prepare("DELETE FROM users WHERE id = ?").run(userId);
-  res.json({ users: db.prepare(`${userSelect} ORDER BY created_at DESC`).all().map(publicUser) });
+  res.json({ users: (db.prepare(`${userSelect} ORDER BY created_at DESC`).all() as UserRow[]).map(publicUser) });
 });
 
 app.use("/api", (req, res) => {
@@ -324,13 +337,13 @@ if (isProduction) {
       const html = await vite.transformIndexHtml(req.originalUrl, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(html);
     } catch (error) {
-      vite.ssrFixStacktrace(error);
+      vite.ssrFixStacktrace(error as Error);
       next(error);
     }
   });
 }
 
-app.use((error, req, res, next) => {
+app.use((error: HttpError, req: Request, res: Response, next: NextFunction) => {
   if (res.headersSent) return next(error);
   res.status(error.status || 500).json({ error: error.message || "Internal server error" });
 });

@@ -2,7 +2,7 @@
 
 # Ema Powerbank
 
-Ema Powerbank is a Gemini API token relay built with React, Express, and SQLite. It exposes Gemini-shaped REST endpoints under `/api/v1*` and does not convert requests into another API protocol. Its job is to replace upstream authentication, forward requests, store audit logs, track usage, and charge user balances.
+Ema Powerbank is a Gemini API token relay built with TypeScript, React, Express, and SQLite. It exposes Gemini-shaped REST endpoints under `/api/v1*` and does not convert requests into another API protocol. Its job is to replace upstream authentication, forward requests, store audit logs, track usage, and charge user balances.
 
 ## Features
 
@@ -20,6 +20,7 @@ Ema Powerbank is a Gemini API token relay built with React, Express, and SQLite.
 ## Stack
 
 - React 19
+- TypeScript
 - Vite 7
 - Express 5
 - better-sqlite3
@@ -254,6 +255,12 @@ Recommended production checklist:
 - If running behind a reverse proxy, configure request body size and timeout limits for model responses
 
 ## Verification
+
+Typecheck:
+
+```bash
+npm run typecheck
+```
 
 Build:
 

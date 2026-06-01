@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  type ChangeEvent,
+  type FormEvent,
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ChevronRight,
   Copy,
@@ -17,15 +25,23 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { api } from "./api.js";
+import { api } from "./api";
 
-const emptyStats = {
+const emptyStats: UsageRow = {
+  requestCount: 0,
+  successCount: 0,
   cachedContentTokenCount: 0,
   promptTokenCount: 0,
   thoughtsTokenCount: 0,
   candidatesTokenCount: 0,
   billableCharacterCount: 0,
   cost: 0,
+  totalCost: 0,
+  todayCost: 0,
+  cachedCost: 0,
+  uncachedCost: 0,
+  outputCost: 0,
+  embeddingCost: 0,
 };
 
 const messages = {
@@ -245,21 +261,122 @@ const messages = {
   },
 };
 
-const chartColors = {
+type Lang = "zh" | "en";
+type ThemeMode = "system" | "light" | "dark";
+type Messages = typeof messages.zh;
+type SegmentKey = "embedding" | "cached" | "uncached" | "output";
+type Numberish = number | string | null | undefined;
+
+interface UsageRow {
+  date?: string;
+  modelId?: string;
+  requestCount?: Numberish;
+  successCount?: Numberish;
+  cachedContentTokenCount?: Numberish;
+  promptTokenCount?: Numberish;
+  thoughtsTokenCount?: Numberish;
+  candidatesTokenCount?: Numberish;
+  billableCharacterCount?: Numberish;
+  cost?: Numberish;
+  totalCost?: Numberish;
+  todayCost?: Numberish;
+  cachedCost?: Numberish;
+  uncachedCost?: Numberish;
+  outputCost?: Numberish;
+  embeddingCost?: Numberish;
+}
+
+interface User {
+  id: number;
+  username: string;
+  role: "admin" | "user";
+  balance: number;
+  createdAt?: string;
+}
+
+interface ApiKey {
+  id: number;
+  name: string;
+  key: string | null;
+  keyPrefix: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+  revokedAt?: string | null;
+}
+
+interface AvailableModel {
+  modelId: string;
+  inputPrice: number;
+  outputPrice: number;
+  cachePrice: number;
+  embeddingInputPrice: number;
+}
+
+interface UsageSummary {
+  requestCount: number;
+  successCount: number;
+  totalCost: number;
+  todayCost: number;
+  successRate: number;
+}
+
+interface Overview {
+  user: User;
+  apiKeys: ApiKey[];
+  dailyStats?: UsageRow[];
+  dailyModelStats?: UsageRow[];
+  modelStats?: UsageRow[];
+  usageSummary?: UsageSummary;
+  availableModels?: AvailableModel[];
+  recentUsage?: unknown[];
+}
+
+interface ProviderInfo {
+  mode?: "ai_studio" | "vertex";
+  location?: string;
+  projectId?: string;
+  configured?: boolean;
+  keyPreview?: string;
+  updatedAt?: string;
+}
+
+interface PricingItem extends AvailableModel {
+  id: number;
+  updatedAt?: string;
+}
+
+interface AdminData {
+  users?: User[];
+  provider?: ProviderInfo | null;
+  pricing?: PricingItem[];
+  dailyStats?: UsageRow[];
+  dailyModelStats?: UsageRow[];
+  modelStats?: UsageRow[];
+  totals?: UsageRow;
+}
+
+type ReloadFn = () => Promise<void> | void;
+type SegmentParts = Record<SegmentKey, number>;
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+const chartColors: Record<SegmentKey, string> = {
   embedding: "#bfdbfe",
   cached: "#60a5fa",
   uncached: "#2563eb",
   output: "#1e3a8a",
 };
 
-const chartDepth = {
+const chartDepth: Record<SegmentKey, number> = {
   embedding: 1,
   cached: 2,
   uncached: 3,
   output: 4,
 };
 
-function usageParts(row = {}) {
+function usageParts(row: UsageRow = {}): SegmentParts {
   const cached = Number(row.cachedContentTokenCount || 0);
   const prompt = Number(row.promptTokenCount || 0);
   const thoughts = Number(row.thoughtsTokenCount || 0);
@@ -272,7 +389,7 @@ function usageParts(row = {}) {
   };
 }
 
-function rawCostParts(row = {}) {
+function rawCostParts(row: UsageRow = {}): SegmentParts {
   return {
     cached: Number(row.cachedCost || 0),
     uncached: Number(row.uncachedCost || 0),
@@ -281,7 +398,7 @@ function rawCostParts(row = {}) {
   };
 }
 
-function costParts(row = {}) {
+function costParts(row: UsageRow = {}): SegmentParts {
   const parts = rawCostParts(row);
   const componentTotal = parts.cached + parts.uncached + parts.output + parts.embedding;
   const recordedTotal = Number(row.cost || 0);
@@ -291,12 +408,12 @@ function costParts(row = {}) {
   return parts;
 }
 
-function sumParts(parts) {
+function sumParts(parts: Record<string, number>) {
   return Object.values(parts).reduce((acc, value) => acc + Number(value || 0), 0);
 }
 
-function aggregateDailyRows(rows = []) {
-  const byDate = new Map();
+function aggregateDailyRows(rows: UsageRow[] = []): UsageRow[] {
+  const byDate = new Map<string, UsageRow>();
   for (const row of rows) {
     const date = row.date || "";
     if (!date) continue;
@@ -315,80 +432,80 @@ function aggregateDailyRows(rows = []) {
       outputCost: 0,
       embeddingCost: 0,
     };
-    existing.requestCount += Number(row.requestCount || 0);
-    existing.successCount += Number(row.successCount || 0);
-    existing.cachedContentTokenCount += Number(row.cachedContentTokenCount || 0);
-    existing.promptTokenCount += Number(row.promptTokenCount || 0);
-    existing.thoughtsTokenCount += Number(row.thoughtsTokenCount || 0);
-    existing.candidatesTokenCount += Number(row.candidatesTokenCount || 0);
-    existing.billableCharacterCount += Number(row.billableCharacterCount || 0);
-    existing.cost += Number(row.cost || 0);
-    existing.cachedCost += Number(row.cachedCost || 0);
-    existing.uncachedCost += Number(row.uncachedCost || 0);
-    existing.outputCost += Number(row.outputCost || 0);
-    existing.embeddingCost += Number(row.embeddingCost || 0);
+    existing.requestCount = Number(existing.requestCount || 0) + Number(row.requestCount || 0);
+    existing.successCount = Number(existing.successCount || 0) + Number(row.successCount || 0);
+    existing.cachedContentTokenCount = Number(existing.cachedContentTokenCount || 0) + Number(row.cachedContentTokenCount || 0);
+    existing.promptTokenCount = Number(existing.promptTokenCount || 0) + Number(row.promptTokenCount || 0);
+    existing.thoughtsTokenCount = Number(existing.thoughtsTokenCount || 0) + Number(row.thoughtsTokenCount || 0);
+    existing.candidatesTokenCount = Number(existing.candidatesTokenCount || 0) + Number(row.candidatesTokenCount || 0);
+    existing.billableCharacterCount = Number(existing.billableCharacterCount || 0) + Number(row.billableCharacterCount || 0);
+    existing.cost = Number(existing.cost || 0) + Number(row.cost || 0);
+    existing.cachedCost = Number(existing.cachedCost || 0) + Number(row.cachedCost || 0);
+    existing.uncachedCost = Number(existing.uncachedCost || 0) + Number(row.uncachedCost || 0);
+    existing.outputCost = Number(existing.outputCost || 0) + Number(row.outputCost || 0);
+    existing.embeddingCost = Number(existing.embeddingCost || 0) + Number(row.embeddingCost || 0);
     byDate.set(date, existing);
   }
   return [...byDate.values()].sort((left, right) => String(right.date).localeCompare(String(left.date)));
 }
 
-function outputTokens(row = {}) {
+function outputTokens(row: UsageRow = {}) {
   return Number(row.thoughtsTokenCount || 0) + Number(row.candidatesTokenCount || 0);
 }
 
-function localeFor(lang) {
+function localeFor(lang: Lang) {
   return lang === "zh" ? "zh-CN" : "en-US";
 }
 
-function formatNumber(value, lang) {
+function formatNumber(value: Numberish, lang: Lang) {
   return new Intl.NumberFormat(localeFor(lang)).format(Number(value || 0));
 }
 
-function formatMoney(value, lang) {
+function formatMoney(value: Numberish, lang: Lang) {
   return new Intl.NumberFormat(localeFor(lang), {
     minimumFractionDigits: 4,
     maximumFractionDigits: 8,
   }).format(Number(value || 0));
 }
 
-function formatBalance(value, lang) {
+function formatBalance(value: Numberish, lang: Lang) {
   return new Intl.NumberFormat(localeFor(lang), {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
 }
 
-function formatCost(value, lang) {
+function formatCost(value: Numberish, lang: Lang) {
   return new Intl.NumberFormat(localeFor(lang), {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value || 0));
 }
 
-function formatDollar(value, lang) {
+function formatDollar(value: Numberish, lang: Lang) {
   return `$${formatCost(value, lang)}`;
 }
 
-function formatPricePerMillion(value, lang) {
+function formatPricePerMillion(value: Numberish, lang: Lang) {
   return `${formatDollar(value, lang)}/M`;
 }
 
-function formatMillion(value, lang) {
+function formatMillion(value: Numberish, lang: Lang) {
   return `${new Intl.NumberFormat(localeFor(lang), {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(Number(value || 0) / 1_000_000)}M`;
 }
 
-function formatCostWithUsage(cost, usage, lang) {
+function formatCostWithUsage(cost: Numberish, usage: Numberish, lang: Lang) {
   return `${formatDollar(cost, lang)} (${formatMillion(usage, lang)})`;
 }
 
-function formatRequestRatio(successCount, requestCount, lang) {
+function formatRequestRatio(successCount: Numberish, requestCount: Numberish, lang: Lang) {
   return `${formatNumber(successCount, lang)} / ${formatNumber(requestCount, lang)}`;
 }
 
-function formatPercent(value, lang) {
+function formatPercent(value: Numberish, lang: Lang) {
   return new Intl.NumberFormat(localeFor(lang), {
     style: "percent",
     minimumFractionDigits: 2,
@@ -396,12 +513,12 @@ function formatPercent(value, lang) {
   }).format(Number(value || 0));
 }
 
-function formatPriceOrUnavailable(value, lang, t) {
+function formatPriceOrUnavailable(value: Numberish, lang: Lang, t: Messages): ReactNode {
   if (Number(value || 0) > 0) return formatMoney(value, lang);
   return <span className="price-unavailable" title={t.unavailable} aria-label={t.unavailable}>-</span>;
 }
 
-function modelPriceParts(item, t, lang) {
+function modelPriceParts(item: AvailableModel, t: Messages, lang: Lang) {
   return [
     [t.uncachedTokens, item.inputPrice],
     [t.output, item.outputPrice],
@@ -416,17 +533,17 @@ function isEmbeddingModelId(modelId = "") {
   return /embedding/i.test(modelId);
 }
 
-function preferredTestModel(models = []) {
+function preferredTestModel(models: AvailableModel[] = []) {
   const modelIds = models.map((item) => item.modelId).filter(Boolean);
   return modelIds.includes("gemini-3.5-flash") ? "gemini-3.5-flash" : modelIds[0] || "gemini-3.5-flash";
 }
 
-function testPathForModel(modelId) {
+function testPathForModel(modelId: string) {
   const action = isEmbeddingModelId(modelId) ? "batchEmbedContents" : "generateContent";
   return `/api/v1beta/models/${encodeURIComponent(modelId)}:${action}`;
 }
 
-function defaultTestBodyForModel(modelId) {
+function defaultTestBodyForModel(modelId: string) {
   if (isEmbeddingModelId(modelId)) {
     return {
       requests: [
@@ -451,11 +568,11 @@ function defaultTestBodyForModel(modelId) {
   };
 }
 
-function formatJson(value) {
+function formatJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
-function formatDateTime(value, lang) {
+function formatDateTime(value: string | null | undefined, lang: Lang) {
   if (!value) return "-";
   return new Intl.DateTimeFormat(localeFor(lang), {
     year: "numeric",
@@ -472,7 +589,7 @@ function maskKey(value = "") {
   return `${value.slice(0, 12)}...${value.slice(-8)}`;
 }
 
-function Stat({ label, value, tone = "blue" }) {
+function Stat({ label, value, tone = "blue" }: { label: string; value: string | number; tone?: string }) {
   return (
     <div className={`stat stat-${tone}`} aria-label={`${label}: ${value}`} title={label}>
       <strong>{value}</strong>
@@ -481,7 +598,19 @@ function Stat({ label, value, tone = "blue" }) {
   );
 }
 
-function PreferenceControls({ lang, setLang, themeMode, setThemeMode, t }) {
+function PreferenceControls({
+  lang,
+  setLang,
+  themeMode,
+  setThemeMode,
+  t,
+}: {
+  lang: Lang;
+  setLang: (value: Lang) => void;
+  themeMode: ThemeMode;
+  setThemeMode: (value: ThemeMode) => void;
+  t: Messages;
+}) {
   return (
     <div className="preference-controls" aria-label="preferences">
       <div className="mini-segment" aria-label={t.language}>
@@ -504,8 +633,22 @@ function PreferenceControls({ lang, setLang, themeMode, setThemeMode, t }) {
   );
 }
 
-function AuthScreen({ onAuthed, lang, setLang, themeMode, setThemeMode, t }) {
-  const [mode, setMode] = useState("login");
+function AuthScreen({
+  onAuthed,
+  lang,
+  setLang,
+  themeMode,
+  setThemeMode,
+  t,
+}: {
+  onAuthed: (user: User) => void;
+  lang: Lang;
+  setLang: (value: Lang) => void;
+  themeMode: ThemeMode;
+  setThemeMode: (value: ThemeMode) => void;
+  t: Messages;
+}) {
+  const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -513,7 +656,7 @@ function AuthScreen({ onAuthed, lang, setLang, themeMode, setThemeMode, t }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function submit(event) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     if (mode === "register" && password !== confirmPassword) {
@@ -522,13 +665,13 @@ function AuthScreen({ onAuthed, lang, setLang, themeMode, setThemeMode, t }) {
     }
     setBusy(true);
     try {
-      const data = await api(mode === "login" ? "/api/auth/login" : "/api/auth/register", {
+      const data = await api<{ user: User }>(mode === "login" ? "/api/auth/login" : "/api/auth/register", {
         method: "POST",
         body: { username, password },
       });
       onAuthed(data.user);
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -620,8 +763,8 @@ function AuthScreen({ onAuthed, lang, setLang, themeMode, setThemeMode, t }) {
   );
 }
 
-function CostBarChart({ rows = [], t, lang }) {
-  const [activeSegment, setActiveSegment] = useState("");
+function CostBarChart({ rows = [], t, lang }: { rows?: UsageRow[]; t: Messages; lang: Lang }) {
+  const [activeSegment, setActiveSegment] = useState<SegmentKey | "">("");
   const chartRows = [...rows].reverse().slice(-14);
   const prepared = chartRows.map((row) => {
     const costs = costParts(row);
@@ -632,7 +775,7 @@ function CostBarChart({ rows = [], t, lang }) {
     return { row, costs, tokens, total, tokenTotal };
   });
   const maxTotal = Math.max(10, ...prepared.map((item) => item.total));
-  const segments = [
+  const segments: Array<[SegmentKey, string]> = [
     ["embedding", t.embeddingTokens],
     ["cached", t.cachedTokens],
     ["uncached", t.uncachedTokens],
@@ -710,8 +853,8 @@ function CostBarChart({ rows = [], t, lang }) {
   );
 }
 
-function UsageTable({ rows = [], t, lang }) {
-  const [sort, setSort] = useState({ key: "date", direction: "desc" });
+function UsageTable({ rows = [], t, lang }: { rows?: UsageRow[]; t: Messages; lang: Lang }) {
+  const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "date", direction: "desc" });
   const [selectedDate, setSelectedDate] = useState("");
   const columns = [
     { key: "date", label: t.date, align: "" },
@@ -744,8 +887,8 @@ function UsageTable({ rows = [], t, lang }) {
   const sortedRows = useMemo(() => {
     const direction = sort.direction === "asc" ? 1 : -1;
     return [...preparedRows].sort((a, b) => {
-      const left = a[sort.key];
-      const right = b[sort.key];
+      const left = a[sort.key as keyof typeof a];
+      const right = b[sort.key as keyof typeof b];
       if (sort.key === "date") {
         return String(left).localeCompare(String(right)) * direction;
       }
@@ -753,7 +896,7 @@ function UsageTable({ rows = [], t, lang }) {
     });
   }, [preparedRows, sort]);
 
-  function changeSort(key) {
+  function changeSort(key: string) {
     setSort((current) => (
       current.key === key
         ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
@@ -779,10 +922,10 @@ function UsageTable({ rows = [], t, lang }) {
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan="7" className="empty-cell">{t.noData}</td>
+              <td colSpan={7} className="empty-cell">{t.noData}</td>
             </tr>
           ) : sortedRows.map((row) => (
-              <tr className={selectedDate === row.date ? "selected" : ""} key={row.date} onClick={() => setSelectedDate(row.date)}>
+              <tr className={selectedDate === row.date ? "selected" : ""} key={row.date} onClick={() => setSelectedDate(row.date || "")}>
                 <td>{row.date}</td>
                 <td className="right">{formatRequestRatio(row.successCount, row.requestCount, lang)}</td>
                 <td className="right">{formatDollar(row.cost, lang)}</td>
@@ -798,8 +941,8 @@ function UsageTable({ rows = [], t, lang }) {
   );
 }
 
-function ModelUsageTable({ rows = [], t, lang }) {
-  const [sort, setSort] = useState({ key: "cost", direction: "desc" });
+function ModelUsageTable({ rows = [], t, lang }: { rows?: UsageRow[]; t: Messages; lang: Lang }) {
+  const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" }>({ key: "cost", direction: "desc" });
   const columns = [
     { key: "modelId", label: t.model, align: "" },
     { key: "requestCount", label: t.requestCount, align: "right" },
@@ -825,14 +968,14 @@ function ModelUsageTable({ rows = [], t, lang }) {
   const sortedRows = useMemo(() => {
     const direction = sort.direction === "asc" ? 1 : -1;
     return [...preparedRows].sort((a, b) => {
-      const left = a[sort.key];
-      const right = b[sort.key];
+      const left = a[sort.key as keyof typeof a];
+      const right = b[sort.key as keyof typeof b];
       if (sort.key === "modelId") return String(left).localeCompare(String(right)) * direction;
       return (Number(left || 0) - Number(right || 0)) * direction;
     });
   }, [preparedRows, sort]);
 
-  function changeSort(key) {
+  function changeSort(key: string) {
     setSort((current) => (
       current.key === key
         ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
@@ -860,7 +1003,7 @@ function ModelUsageTable({ rows = [], t, lang }) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan="7" className="empty-cell">{t.noData}</td>
+                <td colSpan={7} className="empty-cell">{t.noData}</td>
               </tr>
             ) : sortedRows.map((row) => (
               <tr key={row.modelId}>
@@ -880,20 +1023,32 @@ function ModelUsageTable({ rows = [], t, lang }) {
   );
 }
 
-function UsageStatsPanel({ dailyRows = [], dailyModelRows = [], modelRows = [], t, lang }) {
-  const [selectedModels, setSelectedModels] = useState([]);
+function UsageStatsPanel({
+  dailyRows = [],
+  dailyModelRows = [],
+  modelRows = [],
+  t,
+  lang,
+}: {
+  dailyRows?: UsageRow[];
+  dailyModelRows?: UsageRow[];
+  modelRows?: UsageRow[];
+  t: Messages;
+  lang: Lang;
+}) {
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [modelSelectionReady, setModelSelectionReady] = useState(false);
   const modelSourceRows = dailyModelRows.length ? dailyModelRows : modelRows;
   const sourceRows = dailyModelRows.length ? dailyModelRows : dailyRows;
-  const modelOptions = useMemo(() => (
-    [...new Set(modelSourceRows.map((row) => row.modelId).filter(Boolean))]
+  const modelOptions = useMemo<string[]>(() => (
+    [...new Set(modelSourceRows.map((row) => row.modelId).filter((modelId): modelId is string => Boolean(modelId)))]
       .sort((left, right) => String(left).localeCompare(String(right)))
   ), [modelSourceRows]);
   const filteredRows = useMemo(() => {
     const selectedSet = new Set(selectedModels);
     const rows = modelOptions.length === 0 || selectedModels.length === modelOptions.length
       ? sourceRows
-      : sourceRows.filter((row) => selectedSet.has(row.modelId));
+      : sourceRows.filter((row) => row.modelId ? selectedSet.has(row.modelId) : false);
     return aggregateDailyRows(rows);
   }, [modelOptions, selectedModels, sourceRows]);
 
@@ -908,7 +1063,7 @@ function UsageStatsPanel({ dailyRows = [], dailyModelRows = [], modelRows = [], 
     if (modelOptions.length === 0 && modelSelectionReady) setModelSelectionReady(false);
   }, [modelOptions, modelSelectionReady]);
 
-  function toggleModel(modelId, checked) {
+  function toggleModel(modelId: string, checked: boolean) {
     setSelectedModels((current) => {
       if (checked) return [...new Set([...current, modelId])];
       return current.filter((item) => item !== modelId);
@@ -938,9 +1093,19 @@ function UsageStatsPanel({ dailyRows = [], dailyModelRows = [], modelRows = [], 
   );
 }
 
-function ApiTestPanel({ apiKeys = [], availableModels = [], reload, t }) {
-  const usableKeys = apiKeys.filter((item) => item.key);
-  const modelOptions = useMemo(() => availableModels.map((item) => item.modelId).filter(Boolean), [availableModels]);
+function ApiTestPanel({
+  apiKeys = [],
+  availableModels = [],
+  reload,
+  t,
+}: {
+  apiKeys?: ApiKey[];
+  availableModels?: AvailableModel[];
+  reload: ReloadFn;
+  t: Messages;
+}) {
+  const usableKeys = apiKeys.filter((item): item is ApiKey & { key: string } => Boolean(item.key));
+  const modelOptions = useMemo<string[]>(() => availableModels.map((item) => item.modelId).filter(Boolean), [availableModels]);
   const initialModel = preferredTestModel(availableModels);
   const [selectedKey, setSelectedKey] = useState(usableKeys[0]?.key || "");
   const [selectedModel, setSelectedModel] = useState(initialModel);
@@ -964,14 +1129,14 @@ function ApiTestPanel({ apiKeys = [], availableModels = [], reload, t }) {
     }
   }, [availableModels, modelOptions, selectedModel]);
 
-  function changeModel(modelId) {
+  function changeModel(modelId: string) {
     setSelectedModel(modelId);
     setRequestBody(formatJson(defaultTestBodyForModel(modelId)));
     setError("");
     setResponseText("");
   }
 
-  async function sendTest(event) {
+  async function sendTest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setResponseText("");
@@ -1005,7 +1170,7 @@ function ApiTestPanel({ apiKeys = [], availableModels = [], reload, t }) {
       setResponseText(`HTTP ${response.status} ${response.statusText}\n${formatted}`);
       await reload();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -1058,16 +1223,32 @@ function ApiTestPanel({ apiKeys = [], availableModels = [], reload, t }) {
   );
 }
 
-function Dashboard({ overview, reload, t, lang }) {
+function Dashboard({
+  overview,
+  reload,
+  t,
+  lang,
+}: {
+  overview: Overview;
+  reload: ReloadFn;
+  t: Messages;
+  lang: Lang;
+}) {
   const [keyName, setKeyName] = useState("default");
   const [isKeyDialogOpen, setIsKeyDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
   const [toast, setToast] = useState("");
   const [error, setError] = useState("");
   const baseUrl = `${window.location.origin}/api`;
-  const usageSummary = overview.usageSummary || {};
+  const usageSummary: UsageSummary = overview.usageSummary || {
+    requestCount: 0,
+    successCount: 0,
+    totalCost: 0,
+    todayCost: 0,
+    successRate: 0,
+  };
 
-  async function createKey(event) {
+  async function createKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     const normalizedName = keyName.trim() || "Default key";
@@ -1084,7 +1265,8 @@ function Dashboard({ overview, reload, t, lang }) {
       setKeyName("default");
       await reload();
     } catch (err) {
-      setError(err.message === "API key alias already exists" ? t.duplicateAlias : err.message);
+      const message = getErrorMessage(err);
+      setError(message === "API key alias already exists" ? t.duplicateAlias : message);
     }
   }
 
@@ -1094,13 +1276,13 @@ function Dashboard({ overview, reload, t, lang }) {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  async function revokeKey(id) {
+  async function revokeKey(id: number) {
     await api(`/api/keys/${id}`, { method: "DELETE" });
     setDeleteTarget(null);
     await reload();
   }
 
-  async function copy(value) {
+  async function copy(value: string) {
     try {
       await navigator.clipboard.writeText(value);
     } catch {
@@ -1154,7 +1336,7 @@ function Dashboard({ overview, reload, t, lang }) {
                 <span>{t.createdAt}: {formatDateTime(item.createdAt, lang)}</span>
               </div>
               {item.key && (
-                <button className="icon-btn" title={t.copy} onClick={() => copy(item.key)} type="button">
+                <button className="icon-btn" title={t.copy} onClick={() => copy(item.key || "")} type="button">
                   <Copy size={16} aria-hidden="true" />
                 </button>
               )}
@@ -1276,8 +1458,16 @@ function Dashboard({ overview, reload, t, lang }) {
   );
 }
 
-function ProviderForm({ provider, reload, t }) {
-  const [mode, setMode] = useState(provider?.mode || "ai_studio");
+function ProviderForm({
+  provider,
+  reload,
+  t,
+}: {
+  provider?: ProviderInfo | null;
+  reload: ReloadFn;
+  t: Messages;
+}) {
+  const [mode, setMode] = useState<"ai_studio" | "vertex">(provider?.mode || "ai_studio");
   const [location, setLocation] = useState(provider?.location || "global");
   const [key, setKey] = useState("");
   const [error, setError] = useState("");
@@ -1293,8 +1483,8 @@ function ProviderForm({ provider, reload, t }) {
     setLocation(provider?.location || "global");
   }, [provider]);
 
-  async function save(event) {
-    event?.preventDefault();
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setError("");
     if (!key.trim()) {
       setError(t.providerKeyRequired);
@@ -1309,7 +1499,7 @@ function ProviderForm({ provider, reload, t }) {
       setKey("");
       await reload();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     }
   }
 
@@ -1321,7 +1511,7 @@ function ProviderForm({ provider, reload, t }) {
       setKey("");
       await reload();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     }
   }
 
@@ -1385,8 +1575,26 @@ function ProviderForm({ provider, reload, t }) {
   );
 }
 
-function PricingPanel({ pricing, reload, t, lang }) {
-  const [form, setForm] = useState({
+interface PricingFormState {
+  modelId: string;
+  inputPrice: string;
+  outputPrice: string;
+  cachePrice: string;
+  embeddingInputPrice: string;
+}
+
+function PricingPanel({
+  pricing,
+  reload,
+  t,
+  lang,
+}: {
+  pricing: PricingItem[];
+  reload: ReloadFn;
+  t: Messages;
+  lang: Lang;
+}) {
+  const [form, setForm] = useState<PricingFormState>({
     modelId: "",
     inputPrice: "",
     outputPrice: "",
@@ -1395,7 +1603,7 @@ function PricingPanel({ pricing, reload, t, lang }) {
   });
   const [error, setError] = useState("");
 
-  async function save(event) {
+  async function save(event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     setError("");
     const modelId = form.modelId.trim();
@@ -1408,22 +1616,23 @@ function PricingPanel({ pricing, reload, t, lang }) {
       await api("/api/admin/pricing", { method: "POST", body: { ...form, modelId } });
       await reload();
     } catch (err) {
-      setError(err.message === "Pricing model already exists" ? t.modelExists : err.message);
+      const message = getErrorMessage(err);
+      setError(message === "Pricing model already exists" ? t.modelExists : message);
     }
   }
 
-  async function remove(id) {
+  async function remove(id: number) {
     setError("");
     if (!window.confirm(t.confirmDeletePrice)) return;
     try {
       await api(`/api/admin/pricing/${id}`, { method: "DELETE" });
       await reload();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     }
   }
 
-  function update(field, value) {
+  function update(field: keyof PricingFormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -1493,22 +1702,32 @@ function PricingPanel({ pricing, reload, t, lang }) {
   );
 }
 
-function UsersPanel({ users, reload, t, currentUser }) {
-  const [balances, setBalances] = useState({});
+function UsersPanel({
+  users,
+  reload,
+  t,
+  currentUser,
+}: {
+  users: User[];
+  reload: ReloadFn;
+  t: Messages;
+  currentUser: User;
+}) {
+  const [balances, setBalances] = useState<Record<number, string>>({});
   const [error, setError] = useState("");
 
   useEffect(() => {
     setBalances(Object.fromEntries(users.map((user) => [user.id, Number(user.balance || 0).toFixed(4)])));
   }, [users]);
 
-  function formatBalanceEdit(userId) {
+  function formatBalanceEdit(userId: number) {
     setBalances((current) => ({
       ...current,
       [userId]: Number(current[userId] || 0).toFixed(4),
     }));
   }
 
-  async function save(userId) {
+  async function save(userId: number) {
     setError("");
     if (!window.confirm(t.confirmSaveBalance)) return;
     try {
@@ -1518,11 +1737,11 @@ function UsersPanel({ users, reload, t, currentUser }) {
       });
       await reload();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     }
   }
 
-  async function remove(userId) {
+  async function remove(userId: number) {
     setError("");
     if (userId === currentUser?.id) {
       setError(t.cannotDeleteSelf);
@@ -1533,7 +1752,7 @@ function UsersPanel({ users, reload, t, currentUser }) {
       await api(`/api/admin/users/${userId}`, { method: "DELETE" });
       await reload();
     } catch (err) {
-      setError(err.message);
+      setError(getErrorMessage(err));
     }
   }
 
@@ -1588,7 +1807,19 @@ function UsersPanel({ users, reload, t, currentUser }) {
   );
 }
 
-function AdminPanel({ data, reload, t, lang, currentUser }) {
+function AdminPanel({
+  data,
+  reload,
+  t,
+  lang,
+  currentUser,
+}: {
+  data: AdminData;
+  reload: ReloadFn;
+  t: Messages;
+  lang: Lang;
+  currentUser: User;
+}) {
   const totals = data.totals || emptyStats;
   const parts = usageParts(totals);
   const cacheHitDenominator = parts.cached + parts.uncached;
@@ -1638,23 +1869,26 @@ function AdminPanel({ data, reload, t, lang, currentUser }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState("dashboard");
-  const [overview, setOverview] = useState(null);
-  const [adminData, setAdminData] = useState(null);
+  const [active, setActive] = useState<"dashboard" | "admin">("dashboard");
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [error, setError] = useState("");
-  const [lang, setLangState] = useState(() => localStorage.getItem("relay_lang") || "zh");
-  const [themeMode, setThemeModeState] = useState(() => localStorage.getItem("relay_theme") || "system");
+  const [lang, setLangState] = useState<Lang>(() => (localStorage.getItem("relay_lang") === "en" ? "en" : "zh"));
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
+    const stored = localStorage.getItem("relay_theme");
+    return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+  });
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
-  const t = messages[lang] || messages.zh;
+  const t: Messages = messages[lang] || messages.zh;
 
-  function setLang(value) {
+  function setLang(value: Lang) {
     localStorage.setItem("relay_lang", value);
     setLangState(value);
   }
 
-  function setThemeMode(value) {
+  function setThemeMode(value: ThemeMode) {
     localStorage.setItem("relay_theme", value);
     setThemeModeState(value);
   }
@@ -1662,7 +1896,7 @@ export default function App() {
   useEffect(() => {
     const media = window.matchMedia?.("(prefers-color-scheme: dark)");
     if (!media) return undefined;
-    const onChange = (event) => setSystemDark(event.matches);
+    const onChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
   }, []);
@@ -1677,7 +1911,7 @@ export default function App() {
   async function loadSession() {
     setLoading(true);
     try {
-      const data = await api("/api/session");
+      const data = await api<{ user: User | null }>("/api/session");
       setUser(data.user);
     } catch {
       setUser(null);
@@ -1688,13 +1922,13 @@ export default function App() {
 
   async function loadDashboard() {
     if (!user) return;
-    const data = await api("/api/me/overview");
+    const data = await api<Overview>("/api/me/overview");
     setOverview(data);
   }
 
   async function loadAdmin() {
     if (user?.role !== "admin") return;
-    const data = await api("/api/admin/overview");
+    const data = await api<AdminData>("/api/admin/overview");
     setAdminData(data);
   }
 
@@ -1705,8 +1939,8 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     setError("");
-    loadDashboard().catch((err) => setError(err.message));
-    if (user.role === "admin") loadAdmin().catch((err) => setError(err.message));
+    loadDashboard().catch((err) => setError(getErrorMessage(err)));
+    if (user.role === "admin") loadAdmin().catch((err) => setError(getErrorMessage(err)));
   }, [user]);
 
   async function logout() {

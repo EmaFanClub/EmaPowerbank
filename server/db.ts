@@ -2,6 +2,14 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import bcrypt from "bcryptjs";
+import type {
+  PricingDto,
+  PricingPayload,
+  PricingRow,
+  ProviderConfig,
+  ProviderPublicConfig,
+  UserRow,
+} from "./types";
 
 export const ROOT_DIR = process.cwd();
 export const DATA_DIR = path.join(ROOT_DIR, "data");
@@ -76,8 +84,8 @@ CREATE TABLE IF NOT EXISTS usage_records (
 );
 `);
 
-const ensureColumn = (table, column, definition) => {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((item) => item.name);
+const ensureColumn = (table: string, column: string, definition: string) => {
+  const columns = (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((item) => item.name);
   if (!columns.includes(column)) {
     db.prepare(`ALTER TABLE ${table} ADD COLUMN ${definition}`).run();
   }
@@ -86,7 +94,7 @@ const ensureColumn = (table, column, definition) => {
 ensureColumn("api_keys", "key_value", "key_value TEXT");
 
 const seedAdmin = () => {
-  const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get();
+  const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get() as { id: number } | undefined;
   if (existingAdmin) return;
 
   const username = process.env.ADMIN_USERNAME || "admin";
@@ -100,7 +108,7 @@ const seedAdmin = () => {
 
 const seedPricing = () => {
   const seedVersion = "2026-06-02-default-pricing";
-  const currentSeedVersion = db.prepare("SELECT value FROM settings WHERE key = ?").get("pricing_seed_version")?.value;
+  const currentSeedVersion = (db.prepare("SELECT value FROM settings WHERE key = ?").get("pricing_seed_version") as { value: string } | undefined)?.value;
   if (currentSeedVersion === seedVersion) return;
 
   const defaultPricing = [
@@ -191,11 +199,11 @@ db.prepare(`
     )
 `).run();
 
-export function getSetting(key) {
-  return db.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value ?? null;
+export function getSetting(key: string): string | null {
+  return (db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined)?.value ?? null;
 }
 
-export function setSetting(key, value) {
+export function setSetting(key: string, value: string) {
   db.prepare(`
     INSERT INTO settings (key, value, updated_at)
     VALUES (?, ?, ?)
@@ -203,7 +211,7 @@ export function setSetting(key, value) {
   `).run(key, value, now());
 }
 
-export function publicUser(row) {
+export function publicUser(row: UserRow | undefined | null) {
   if (!row) return null;
   return {
     id: row.id,
@@ -214,10 +222,13 @@ export function publicUser(row) {
   };
 }
 
-export function getProviderConfig({ includeSecret = false } = {}) {
+export function getProviderConfig(options: { includeSecret: true }): ProviderConfig | null;
+export function getProviderConfig(options?: { includeSecret?: false }): ProviderPublicConfig | null;
+export function getProviderConfig(options: { includeSecret?: boolean } = {}): ProviderConfig | ProviderPublicConfig | null {
+  const { includeSecret = false } = options;
   const raw = getSetting("provider_config");
   if (!raw) return null;
-  const config = JSON.parse(raw);
+  const config = JSON.parse(raw) as ProviderConfig;
   if (includeSecret) return config;
   const mode = config.mode === "vertex" ? "vertex" : "ai_studio";
   return {
@@ -230,7 +241,7 @@ export function getProviderConfig({ includeSecret = false } = {}) {
   };
 }
 
-export function saveProviderConfig(config) {
+export function saveProviderConfig(config: ProviderConfig) {
   setSetting("provider_config", JSON.stringify({ ...config, updatedAt: now() }));
 }
 
@@ -238,8 +249,8 @@ export function clearProviderConfig() {
   db.prepare("DELETE FROM settings WHERE key = 'provider_config'").run();
 }
 
-export function listPricing() {
-  return db.prepare("SELECT * FROM pricing ORDER BY model_id").all().map((row) => ({
+export function listPricing(): PricingDto[] {
+  return (db.prepare("SELECT * FROM pricing ORDER BY model_id").all() as PricingRow[]).map((row) => ({
     id: row.id,
     modelId: row.model_id,
     inputPrice: Number(row.input_price),
@@ -250,11 +261,11 @@ export function listPricing() {
   }));
 }
 
-export function getPricingForModel(modelId) {
-  return db.prepare("SELECT * FROM pricing WHERE model_id = ?").get(modelId);
+export function getPricingForModel(modelId: string): PricingRow | undefined {
+  return db.prepare("SELECT * FROM pricing WHERE model_id = ?").get(modelId) as PricingRow | undefined;
 }
 
-export function upsertPricing(payload) {
+export function upsertPricing(payload: PricingPayload) {
   const ts = now();
   db.prepare(`
     INSERT INTO pricing
@@ -278,7 +289,7 @@ export function upsertPricing(payload) {
   return getPricingForModel(payload.modelId);
 }
 
-export function createPricing(payload) {
+export function createPricing(payload: PricingPayload) {
   const ts = now();
   try {
     db.prepare(`
@@ -295,8 +306,8 @@ export function createPricing(payload) {
       ts,
     );
   } catch (error) {
-    if (String(error.code || "").includes("SQLITE_CONSTRAINT")) {
-      const conflict = new Error("Pricing model already exists");
+    if (String((error as { code?: string }).code || "").includes("SQLITE_CONSTRAINT")) {
+      const conflict = new Error("Pricing model already exists") as Error & { code?: string };
       conflict.code = "PRICING_MODEL_CONFLICT";
       throw conflict;
     }
@@ -305,11 +316,11 @@ export function createPricing(payload) {
   return getPricingForModel(payload.modelId);
 }
 
-export function deletePricing(id) {
+export function deletePricing(id: string | number) {
   db.prepare("DELETE FROM pricing WHERE id = ?").run(id);
 }
 
-export function maskSecret(value) {
+export function maskSecret(value: string) {
   if (!value) return "";
   const trimmed = String(value).trim();
   if (trimmed.length <= 12) return `${trimmed.slice(0, 3)}...`;

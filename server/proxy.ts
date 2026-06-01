@@ -1,9 +1,10 @@
 import express from "express";
+import type { NextFunction, Request, Response } from "express";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { REQUEST_LOG_DIR, getProviderConfig, isoNow } from "./db.js";
-import { findApiKey, touchApiKey } from "./auth.js";
+import { REQUEST_LOG_DIR, getProviderConfig, isoNow } from "./db";
+import { findApiKey, touchApiKey } from "./auth";
 import {
   calculateCost,
   extractModelFromPath,
@@ -11,16 +12,42 @@ import {
   hasNonZeroPrice,
   normalizeUsageForModel,
   recordUsage,
-} from "./billing.js";
-import { getVertexAccessToken, parseVertexCredentials } from "./googleProvider.js";
+} from "./billing";
+import { getVertexAccessToken, parseVertexCredentials } from "./googleProvider";
+import type { ApiKeyRow, HttpError, JsonRecord, ProviderConfig, UsageCounts } from "./types";
 
 const rawJson = express.raw({ type: "*/*", limit: "50mb" });
 
-export function stripApiPrefix(pathname) {
+type HeaderMap = Record<string, string>;
+
+interface UpstreamRequest {
+  url: string;
+  headers: HeaderMap;
+  vertexEmbeddingBatchCompat?: boolean;
+}
+
+interface AuditLogInput {
+  req: Request;
+  fileName: string;
+  apiKeyRow: ApiKeyRow;
+  provider: ProviderConfig | null;
+  upstreamUrl: string;
+  responseBody: string;
+  statusCode: number;
+  usage: UsageCounts;
+  cost: number;
+  error?: unknown;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function stripApiPrefix(pathname: string) {
   return pathname.replace(/^\/api\/(v1(?:alpha|beta1?)?\/)/, "/$1");
 }
 
-export function toVertexPathname(pathname, projectId, location) {
+export function toVertexPathname(pathname: string, projectId: string, location: string) {
   let vertexPathname = pathname.replace(/^\/v1beta\//, "/v1beta1/");
 
   if (!vertexPathname.includes("/projects/") && /^\/v1(?:alpha|beta1?)?\/models\//.test(vertexPathname)) {
@@ -38,30 +65,30 @@ export function toVertexPathname(pathname, projectId, location) {
   return vertexPathname;
 }
 
-function isVertexEmbeddingBatchCompat(pathname) {
+function isVertexEmbeddingBatchCompat(pathname: string) {
   return /\/(?:publishers\/google\/)?models\/gemini-embedding-2:batchEmbedContents$/i.test(pathname);
 }
 
-export function transformVertexEmbeddingBatchRequest(bodyText) {
-  const payload = JSON.parse(bodyText || "{}");
+export function transformVertexEmbeddingBatchRequest(bodyText: string) {
+  const payload = JSON.parse(bodyText || "{}") as JsonRecord;
   const requests = Array.isArray(payload.requests) ? payload.requests : null;
   const request = requests ? requests[0] : payload;
 
   if (requests && requests.length !== 1) {
-    const error = new Error("Vertex AI gemini-embedding-2 supports one embedding content per request");
+    const error = new Error("Vertex AI gemini-embedding-2 supports one embedding content per request") as HttpError;
     error.status = 400;
     throw error;
   }
 
   const content = request?.content || payload.content;
   if (!content) {
-    const error = new Error("Embedding content is required");
+    const error = new Error("Embedding content is required") as HttpError;
     error.status = 400;
     throw error;
   }
 
-  const body = { content };
-  const embedContentConfig = {};
+  const body: JsonRecord = { content };
+  const embedContentConfig: JsonRecord = {};
   for (const key of ["taskType", "title", "outputDimensionality", "autoTruncate", "documentOcr", "audioTrackExtraction"]) {
     if (request?.[key] !== undefined) embedContentConfig[key] = request[key];
   }
@@ -69,8 +96,8 @@ export function transformVertexEmbeddingBatchRequest(bodyText) {
   return JSON.stringify(body);
 }
 
-export function transformVertexEmbeddingBatchResponse(bodyText) {
-  const payload = JSON.parse(bodyText || "{}");
+export function transformVertexEmbeddingBatchResponse(bodyText: string) {
+  const payload = JSON.parse(bodyText || "{}") as JsonRecord;
   if (!payload.embedding || payload.embeddings) return bodyText;
 
   const embedding = { ...payload.embedding };
@@ -88,7 +115,7 @@ export function transformVertexEmbeddingBatchResponse(bodyText) {
   });
 }
 
-function extractRelayApiKey(req) {
+function extractRelayApiKey(req: Request) {
   const auth = req.get("authorization") || "";
   if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
 
@@ -98,13 +125,13 @@ function extractRelayApiKey(req) {
     || "";
 }
 
-function safeLogFileName(userId) {
+function safeLogFileName(userId: number) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `${stamp}-user-${userId}-${crypto.randomBytes(4).toString("hex")}.json`;
 }
 
-function responseHeaders(headers) {
-  const picked = {};
+function responseHeaders(headers: Headers) {
+  const picked: HeaderMap = {};
   for (const key of ["content-type", "cache-control", "x-request-id"]) {
     const value = headers.get(key);
     if (value) picked[key] = value;
@@ -112,8 +139,8 @@ function responseHeaders(headers) {
   return picked;
 }
 
-function clientHeaders(req) {
-  const headers = {};
+function clientHeaders(req: Request) {
+  const headers: HeaderMap = {};
   for (const [key, value] of Object.entries(req.headers)) {
     const normalized = key.toLowerCase();
     if ([
@@ -125,12 +152,13 @@ function clientHeaders(req) {
       "x-api-key",
       "x-goog-api-key",
     ].includes(normalized)) continue;
-    headers[key] = value;
+    if (Array.isArray(value)) headers[key] = value.join(", ");
+    else if (typeof value === "string") headers[key] = value;
   }
   return headers;
 }
 
-function auditHeaders(req) {
+function auditHeaders(req: Request) {
   const headers = { ...req.headers };
   for (const key of ["authorization", "cookie", "x-api-key", "x-goog-api-key"]) {
     if (headers[key]) headers[key] = "[redacted]";
@@ -138,7 +166,7 @@ function auditHeaders(req) {
   return headers;
 }
 
-function buildUpstreamRequest(req, provider) {
+function buildUpstreamRequest(req: Request, provider: ProviderConfig): UpstreamRequest {
   const incomingUrl = new URL(req.originalUrl, "http://relay.local");
   incomingUrl.pathname = stripApiPrefix(incomingUrl.pathname);
   incomingUrl.searchParams.delete("key");
@@ -177,7 +205,7 @@ async function saveAuditLog({
   usage,
   cost,
   error,
-}) {
+}: AuditLogInput) {
   const payload = {
     timestamp: isoNow(),
     userId: apiKeyRow.user_id,
@@ -197,7 +225,7 @@ async function saveAuditLog({
     response: {
       statusCode,
       body: responseBody,
-      error: error ? String(error.message || error) : null,
+      error: error ? errorMessage(error) : null,
     },
     billing: {
       usage,
@@ -212,7 +240,7 @@ async function saveAuditLog({
 
 export const proxyMiddlewares = [
   rawJson,
-  async function geminiProxy(req, res) {
+  async function geminiProxy(req: Request, res: Response, _next: NextFunction) {
     const relayApiKey = extractRelayApiKey(req);
     const apiKeyRow = findApiKey(relayApiKey);
     if (!apiKeyRow) return res.status(401).json({ error: "Invalid relay API key" });
@@ -240,9 +268,11 @@ export const proxyMiddlewares = [
         upstream.headers.authorization = `Bearer ${await getVertexAccessToken(provider)}`;
       }
 
-      let body = ["GET", "HEAD"].includes(req.method.toUpperCase()) ? undefined : req.body;
+      let body: any = ["GET", "HEAD"].includes(req.method.toUpperCase())
+        ? undefined
+        : (req.body as Buffer | undefined);
       if (upstream.vertexEmbeddingBatchCompat && body) {
-        body = Buffer.from(transformVertexEmbeddingBatchRequest(Buffer.from(body).toString("utf8")));
+        body = Buffer.from(transformVertexEmbeddingBatchRequest(Buffer.from(body as Buffer).toString("utf8")));
         upstream.headers["content-type"] = "application/json";
       }
       const upstreamResponse = await fetch(upstreamUrl, {
@@ -250,7 +280,7 @@ export const proxyMiddlewares = [
         headers: upstream.headers,
         body,
         duplex: "half",
-      });
+      } as RequestInit & { duplex: "half" });
 
       statusCode = upstreamResponse.status;
       res.status(statusCode);
@@ -308,8 +338,9 @@ export const proxyMiddlewares = [
       });
       touchApiKey(apiKeyRow.id);
     } catch (error) {
-      statusCode = error.status || 502;
-      responseBody = JSON.stringify({ error: "Relay upstream request failed", detail: error.message });
+      const relayError = error as HttpError;
+      statusCode = relayError.status || 502;
+      responseBody = JSON.stringify({ error: "Relay upstream request failed", detail: errorMessage(error) });
       if (!res.headersSent) res.status(statusCode).json(JSON.parse(responseBody));
       const auditPath = await saveAuditLog({
         req,

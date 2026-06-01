@@ -1,16 +1,19 @@
-import { db, getPricingForModel, isoNow } from "./db.js";
+import { db, getPricingForModel, isoNow } from "./db";
+import type { AggregateUsageRow, JsonRecord, RecordUsageInput, UsageCounts } from "./types";
 
-const numberFrom = (...values) => {
+const numberFrom = (...values: unknown[]) => {
   for (const value of values) {
     if (Number.isFinite(Number(value))) return Number(value);
   }
   return 0;
 };
 
-const getNestedUsage = (payload) => payload?.usageMetadata || payload?.usage_metadata || payload?.metadata || {};
+const getNestedUsage = (payload: JsonRecord | null | undefined): JsonRecord => (
+  payload?.usageMetadata || payload?.usage_metadata || payload?.metadata || {}
+);
 
-export function extractUsage(bodyText) {
-  const base = {
+export function extractUsage(bodyText: string): UsageCounts {
+  const base: UsageCounts = {
     cachedContentTokenCount: 0,
     promptTokenCount: 0,
     thoughtsTokenCount: 0,
@@ -18,7 +21,7 @@ export function extractUsage(bodyText) {
     billableCharacterCount: 0,
   };
 
-  const apply = (payload) => {
+  const apply = (payload: JsonRecord) => {
     const usage = getNestedUsage(payload);
     base.cachedContentTokenCount = Math.max(base.cachedContentTokenCount, numberFrom(
       usage.cachedContentTokenCount,
@@ -68,7 +71,7 @@ export function extractUsage(bodyText) {
   return base;
 }
 
-export function extractModelFromPath(pathname) {
+export function extractModelFromPath(pathname: string) {
   const patterns = [
     /\/publishers\/google\/models\/([^/:]+):/i,
     /\/models\/([^/:]+):/i,
@@ -82,11 +85,11 @@ export function extractModelFromPath(pathname) {
   return "";
 }
 
-export function isEmbeddingModel(modelId) {
+export function isEmbeddingModel(modelId: string) {
   return /embedding/i.test(modelId || "");
 }
 
-export function normalizeUsageForModel(modelId, usage) {
+export function normalizeUsageForModel(modelId: string, usage: UsageCounts): UsageCounts {
   if (!isEmbeddingModel(modelId)) return usage;
 
   const embeddingUsage = Number(usage.billableCharacterCount || 0)
@@ -104,7 +107,7 @@ export function normalizeUsageForModel(modelId, usage) {
   };
 }
 
-export function hasNonZeroPrice(modelId) {
+export function hasNonZeroPrice(modelId: string) {
   const pricing = getPricingForModel(modelId);
   if (!pricing) return false;
   return [
@@ -115,7 +118,7 @@ export function hasNonZeroPrice(modelId) {
   ].some((value) => Number(value) > 0);
 }
 
-export function calculateCost(modelId, usage) {
+export function calculateCost(modelId: string, usage: UsageCounts) {
   const pricing = getPricingForModel(modelId);
   if (!pricing) return 0;
 
@@ -146,7 +149,7 @@ export function recordUsage({
   usage,
   cost,
   auditFile,
-}) {
+}: RecordUsageInput) {
   const ts = isoNow();
   db.transaction(() => {
     db.prepare(`
@@ -213,7 +216,7 @@ const aggregateUsageColumns = `
   SUM((u.billable_character_count / 1000000.0) * COALESCE(p.embedding_input_price, 0)) AS embeddingCost
 `;
 
-export function userDailyStats(userId) {
+export function userDailyStats(userId: number): AggregateUsageRow[] {
   return db.prepare(`
     SELECT
       usage_date AS date,
@@ -224,10 +227,10 @@ export function userDailyStats(userId) {
     GROUP BY u.usage_date
     ORDER BY u.usage_date DESC
     LIMIT 30
-  `).all(userId);
+  `).all(userId) as AggregateUsageRow[];
 }
 
-export function userDailyModelStats(userId) {
+export function userDailyModelStats(userId: number): AggregateUsageRow[] {
   return db.prepare(`
     WITH recent_dates AS (
       SELECT DISTINCT usage_date
@@ -246,10 +249,10 @@ export function userDailyModelStats(userId) {
     WHERE u.user_id = ?
     GROUP BY u.usage_date, COALESCE(NULLIF(u.model_id, ''), 'unknown')
     ORDER BY u.usage_date DESC, SUM(u.cost) DESC, modelId ASC
-  `).all(userId, userId);
+  `).all(userId, userId) as AggregateUsageRow[];
 }
 
-export function recentUsage(userId, limit = 20) {
+export function recentUsage(userId: number, limit = 20) {
   return db.prepare(`
     SELECT *
     FROM usage_records
@@ -259,7 +262,7 @@ export function recentUsage(userId, limit = 20) {
   `).all(userId, limit);
 }
 
-export function userModelStats(userId) {
+export function userModelStats(userId: number): AggregateUsageRow[] {
   return db.prepare(`
     SELECT
       COALESCE(NULLIF(u.model_id, ''), 'unknown') AS modelId,
@@ -269,10 +272,10 @@ export function userModelStats(userId) {
     WHERE u.user_id = ?
     GROUP BY COALESCE(NULLIF(u.model_id, ''), 'unknown')
     ORDER BY SUM(u.cost) DESC, COUNT(*) DESC, modelId ASC
-  `).all(userId);
+  `).all(userId) as AggregateUsageRow[];
 }
 
-export function adminDailyStats() {
+export function adminDailyStats(): AggregateUsageRow[] {
   return db.prepare(`
     SELECT
       usage_date AS date,
@@ -282,10 +285,10 @@ export function adminDailyStats() {
     GROUP BY u.usage_date
     ORDER BY u.usage_date DESC
     LIMIT 30
-  `).all();
+  `).all() as AggregateUsageRow[];
 }
 
-export function adminDailyModelStats() {
+export function adminDailyModelStats(): AggregateUsageRow[] {
   return db.prepare(`
     WITH recent_dates AS (
       SELECT DISTINCT usage_date
@@ -302,10 +305,10 @@ export function adminDailyModelStats() {
     LEFT JOIN pricing p ON p.model_id = u.model_id
     GROUP BY u.usage_date, COALESCE(NULLIF(u.model_id, ''), 'unknown')
     ORDER BY u.usage_date DESC, SUM(u.cost) DESC, modelId ASC
-  `).all();
+  `).all() as AggregateUsageRow[];
 }
 
-export function adminModelStats() {
+export function adminModelStats(): AggregateUsageRow[] {
   return db.prepare(`
     SELECT
       COALESCE(NULLIF(u.model_id, ''), 'unknown') AS modelId,
@@ -314,5 +317,5 @@ export function adminModelStats() {
     LEFT JOIN pricing p ON p.model_id = u.model_id
     GROUP BY COALESCE(NULLIF(u.model_id, ''), 'unknown')
     ORDER BY SUM(u.cost) DESC, COUNT(*) DESC, modelId ASC
-  `).all();
+  `).all() as AggregateUsageRow[];
 }

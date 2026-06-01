@@ -1,19 +1,25 @@
 import { GoogleGenAI } from "@google/genai";
 import { GoogleAuth } from "google-auth-library";
+import type { JsonRecord, ProviderConfig } from "./types";
 
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 
-let cachedAuth = null;
+type VertexCredentials = JsonRecord & {
+  project_id: string;
+  client_email?: string;
+};
 
-export function parseVertexCredentials(key) {
-  const credentials = JSON.parse(key);
+let cachedAuth: { cacheKey: string; client: any } | null = null;
+
+export function parseVertexCredentials(key: string): VertexCredentials {
+  const credentials = JSON.parse(key) as VertexCredentials;
   if (!credentials.project_id) {
     throw new Error("Vertex service account JSON must include project_id");
   }
   return credentials;
 }
 
-export function createGoogleGenAIClient(config, httpOptions = {}) {
+export function createGoogleGenAIClient(config: ProviderConfig, httpOptions: JsonRecord = {}) {
   const key = config.key;
 
   if (config.mode === "vertex") {
@@ -28,7 +34,7 @@ export function createGoogleGenAIClient(config, httpOptions = {}) {
       project: credentials.project_id,
       googleAuthOptions,
       httpOptions,
-    });
+    } as any);
   }
 
   return new GoogleGenAI({
@@ -37,7 +43,7 @@ export function createGoogleGenAIClient(config, httpOptions = {}) {
   });
 }
 
-export async function getVertexAccessToken(config) {
+export async function getVertexAccessToken(config: ProviderConfig) {
   const credentials = parseVertexCredentials(config.key);
   const cacheKey = `${credentials.client_email}:${config.location || "global"}`;
 
@@ -57,7 +63,7 @@ export async function getVertexAccessToken(config) {
   return result.token;
 }
 
-export function normalizeProviderConfig(payload) {
+export function normalizeProviderConfig(payload: JsonRecord): ProviderConfig {
   const mode = payload.mode === "vertex" ? "vertex" : "ai_studio";
   const key = String(payload.key || "").trim();
   let location = "";

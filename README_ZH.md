@@ -2,7 +2,7 @@
 
 # Ema Powerbank
 
-Ema Powerbank 是一个 Gemini API token 中转站，使用 React、Express 和 SQLite 构建。它对外暴露 Gemini REST 形状的 `/api/v1*` 端点，不做 OpenAI 兼容协议转换，核心职责是替换上游认证、转发请求、记录审计日志、统计用量并按余额计费。
+Ema Powerbank 是一个 Gemini API token 中转站，使用 TypeScript、React、Express 和 SQLite 构建。它对外暴露 Gemini REST 形状的 `/api/v1*` 端点，不做 OpenAI 兼容协议转换，核心职责是替换上游认证、转发请求、记录审计日志、统计用量并按余额计费。
 
 ## 特性
 
@@ -20,6 +20,7 @@ Ema Powerbank 是一个 Gemini API token 中转站，使用 React、Express 和 
 ## 技术栈
 
 - React 19
+- TypeScript
 - Vite 7
 - Express 5
 - better-sqlite3
@@ -254,6 +255,12 @@ NODE_ENV=production npm start
 - 如果放在反向代理后面，请确保请求体大小和超时设置适合模型响应
 
 ## 验证
+
+类型检查：
+
+```bash
+npm run typecheck
+```
 
 构建检查：
 
