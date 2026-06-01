@@ -141,3 +141,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Local relay runtime
+data/
+request-logs/
+.codex/
+.DS_Store
