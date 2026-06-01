@@ -1484,6 +1484,27 @@ th {
   background: rgba(36, 37, 40, 0.72);
 }
 
+:root[data-theme="dark"] .auth-panel .segmented {
+  background: rgba(15, 17, 21, 0.62);
+  border-color: var(--line-strong);
+}
+
+:root[data-theme="dark"] .auth-panel .segmented button {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+:root[data-theme="dark"] .auth-panel .segmented button:not(.active):hover {
+  background: rgba(168, 199, 250, 0.1);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .auth-panel .segmented button.active {
+  background: var(--blue-600);
+  color: #10233f;
+  box-shadow: 0 0 0 1px rgba(168, 199, 250, 0.26), 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
 td,
 th {
   border-bottom-color: var(--table-line);
