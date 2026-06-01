@@ -57,6 +57,7 @@ ADMIN_PASSWORD=admin123456
 | `PORT` | `8787` | Web 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 后使用 `dist/` 静态资源 |
 | `JWT_SECRET` | `development-only-change-me` | 登录 session 签名密钥，生产环境必须设置 |
+| `SESSION_COOKIE_SECURE` | `NODE_ENV=production` 时为 `true`，否则为 `false` | 登录 session cookie 是否使用 `Secure` 属性 |
 | `ADMIN_USERNAME` | `admin` | 首次初始化管理员用户名 |
 | `ADMIN_PASSWORD` | `admin123456` | 首次初始化管理员密码 |
 
@@ -67,11 +68,15 @@ export JWT_SECRET="replace-with-a-long-random-secret"
 export ADMIN_USERNAME="admin"
 export ADMIN_PASSWORD="replace-with-a-strong-password"
 export PORT=8787
+# 只有生产环境使用纯 HTTP 访问时才需要设置这个值。
+export SESSION_COOKIE_SECURE=false
 
 npm ci
 npm run build
 npm start
 ```
+
+如果通过 HTTPS 访问，请保持 `SESSION_COOKIE_SECURE=true`。只有纯 HTTP 部署才设置为 `false`，否则浏览器会拒收生产环境的 session cookie，登录后就会出现 `Not authenticated`。
 
 ## 管理员配置
 

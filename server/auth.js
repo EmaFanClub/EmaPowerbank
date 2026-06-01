@@ -6,6 +6,20 @@ import { db, isoNow, publicUser } from "./db.js";
 const COOKIE_NAME = "relay_session";
 const JWT_SECRET = process.env.JWT_SECRET || "development-only-change-me";
 
+function parseBooleanEnv(value, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function sessionCookieBaseOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: parseBooleanEnv(process.env.SESSION_COOKIE_SECURE, process.env.NODE_ENV === "production"),
+    path: "/",
+  };
+}
+
 export function hashPassword(password) {
   return bcrypt.hash(password, 12);
 }
@@ -20,16 +34,13 @@ export function signSession(user) {
 
 export function setSessionCookie(res, token) {
   res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    ...sessionCookieBaseOptions(),
     maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: "/",
   });
 }
 
 export function clearSessionCookie(res) {
-  res.clearCookie(COOKIE_NAME, { path: "/" });
+  res.clearCookie(COOKIE_NAME, sessionCookieBaseOptions());
 }
 
 export function requireSession(req, res, next) {
