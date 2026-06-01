@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { GoogleAuth } from "google-auth-library";
-import type { JsonRecord, ProviderConfig } from "./types";
+import type { JsonRecord, ProviderConfig } from "./types.js";
 
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 

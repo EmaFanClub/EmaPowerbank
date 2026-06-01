@@ -1,5 +1,5 @@
-import { db, getPricingForModel, isoNow } from "./db";
-import type { AggregateUsageRow, JsonRecord, RecordUsageInput, UsageCounts } from "./types";
+import { db, getPricingForModel, isoNow } from "./db.js";
+import type { AggregateUsageRow, JsonRecord, RecordUsageInput, UsageCounts } from "./types.js";
 
 const numberFrom = (...values: unknown[]) => {
   for (const value of values) {

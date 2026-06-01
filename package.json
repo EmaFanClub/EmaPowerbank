@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "tsx watch server/index.ts",
     "typecheck": "tsc --noEmit",
-    "build": "vite build",
-    "start": "NODE_ENV=production tsx server/index.ts",
-    "smoke": "tsx server/smoke-test.ts"
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start": "NODE_ENV=production node dist-server/index.js",
+    "smoke": "node dist-server/smoke-test.js"
   },
   "dependencies": {
     "@google/genai": "^1.33.0",

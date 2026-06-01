@@ -2,8 +2,8 @@ import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import type { CookieOptions, NextFunction, Request, Response } from "express";
 import jwt, { type JwtPayload } from "jsonwebtoken";
-import { db, isoNow, publicUser } from "./db";
-import type { ApiKeyRow, HttpError, PublicApiKey, Role, UserRow } from "./types";
+import { db, isoNow, publicUser } from "./db.js";
+import type { ApiKeyRow, HttpError, PublicApiKey, UserRow } from "./types.js";
 
 const COOKIE_NAME = "relay_session";
 const JWT_SECRET = process.env.JWT_SECRET || "development-only-change-me";

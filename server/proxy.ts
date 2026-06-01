@@ -3,8 +3,8 @@ import type { NextFunction, Request, Response } from "express";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { REQUEST_LOG_DIR, getProviderConfig, isoNow } from "./db";
-import { findApiKey, touchApiKey } from "./auth";
+import { REQUEST_LOG_DIR, getProviderConfig, isoNow } from "./db.js";
+import { findApiKey, touchApiKey } from "./auth.js";
 import {
   calculateCost,
   extractModelFromPath,
@@ -12,9 +12,9 @@ import {
   hasNonZeroPrice,
   normalizeUsageForModel,
   recordUsage,
-} from "./billing";
-import { getVertexAccessToken, parseVertexCredentials } from "./googleProvider";
-import type { ApiKeyRow, HttpError, JsonRecord, ProviderConfig, UsageCounts } from "./types";
+} from "./billing.js";
+import { getVertexAccessToken, parseVertexCredentials } from "./googleProvider.js";
+import type { ApiKeyRow, HttpError, JsonRecord, ProviderConfig, UsageCounts } from "./types.js";
 
 const rawJson = express.raw({ type: "*/*", limit: "50mb" });
 

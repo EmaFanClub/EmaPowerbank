@@ -1,4 +1,4 @@
-import type { UserRow } from "./types";
+import type { UserRow } from "./types.js";
 
 declare global {
   namespace Express {

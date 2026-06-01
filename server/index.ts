@@ -13,7 +13,7 @@ import {
   listPricing,
   publicUser,
   saveProviderConfig,
-} from "./db";
+} from "./db.js";
 import {
   clearSessionCookie,
   createApiKey,
@@ -25,7 +25,7 @@ import {
   setSessionCookie,
   signSession,
   verifyPassword,
-} from "./auth";
+} from "./auth.js";
 import {
   adminDailyStats,
   adminDailyModelStats,
@@ -34,10 +34,10 @@ import {
   userDailyStats,
   userDailyModelStats,
   userModelStats,
-} from "./billing";
-import { createGoogleGenAIClient, normalizeProviderConfig } from "./googleProvider";
-import { proxyMiddlewares } from "./proxy";
-import type { HttpError, PricingDto, PublicUser, UserRow } from "./types";
+} from "./billing.js";
+import { createGoogleGenAIClient, normalizeProviderConfig } from "./googleProvider.js";
+import { proxyMiddlewares } from "./proxy.js";
+import type { HttpError, UserRow } from "./types.js";
 
 const app = express();
 const port = Number(process.env.PORT || 8787);

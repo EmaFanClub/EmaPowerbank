@@ -4,14 +4,14 @@ import {
   extractModelFromPath,
   extractUsage,
   normalizeUsageForModel,
-} from "./billing";
-import { db, upsertPricing } from "./db";
+} from "./billing.js";
+import { db, upsertPricing } from "./db.js";
 import {
   stripApiPrefix,
   toVertexPathname,
   transformVertexEmbeddingBatchRequest,
   transformVertexEmbeddingBatchResponse,
-} from "./proxy";
+} from "./proxy.js";
 
 upsertPricing({
   modelId: "smoke-model",

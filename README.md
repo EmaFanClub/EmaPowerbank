@@ -74,6 +74,8 @@ export SESSION_COOKIE_SECURE=false
 
 npm ci
 npm run build
+# Optional in a runtime image after build artifacts already exist.
+npm prune --omit=dev
 npm start
 ```
 
@@ -242,6 +244,8 @@ Start the production server:
 NODE_ENV=production npm start
 ```
 
+`npm run build` emits the Vite frontend to `dist/` and the compiled Express server to `dist-server/`. `npm start` runs `node dist-server/index.js`, so production runtime installs can omit dev dependencies after the build artifacts have been created.
+
 In production mode, Express serves the `dist/` frontend and continues to expose backend and relay APIs on the same port.
 
 Recommended production checklist:
@@ -268,7 +272,7 @@ Build:
 npm run build
 ```
 
-Smoke test:
+Smoke test after build:
 
 ```bash
 npm run smoke
