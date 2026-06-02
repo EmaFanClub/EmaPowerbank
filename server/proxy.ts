@@ -126,7 +126,7 @@ function extractRelayApiKey(req: Request) {
 }
 
 function safeLogFileName(userId: number) {
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
   return `${stamp}-user-${userId}-${crypto.randomBytes(4).toString("hex")}.json`;
 }
 
