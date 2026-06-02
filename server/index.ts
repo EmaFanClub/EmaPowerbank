@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import path from "node:path";
 import fs from "node:fs";
 import {
+  REQUEST_LOG_DIR,
   clearProviderConfig,
   db,
   createPricing,
@@ -58,6 +59,113 @@ const userSelect = `
   SELECT id, username, role, balance, created_at, updated_at
   FROM users
 `;
+
+interface RequestLogRow {
+  id: number;
+  userId: number;
+  username: string | null;
+  apiKeyId: number | null;
+  apiKeyPrefix: string | null;
+  modelId: string | null;
+  endpoint: string;
+  requestPath: string;
+  usageDate: string;
+  statusCode: number;
+  cachedContentTokenCount: number;
+  promptTokenCount: number;
+  thoughtsTokenCount: number;
+  candidatesTokenCount: number;
+  billableCharacterCount: number;
+  cost: number;
+  auditFile: string;
+  createdAt: string;
+}
+
+const requestLogSelect = `
+  SELECT
+    u.id,
+    u.user_id AS userId,
+    users.username AS username,
+    u.api_key_id AS apiKeyId,
+    api_keys.key_prefix AS apiKeyPrefix,
+    u.model_id AS modelId,
+    u.endpoint,
+    u.request_path AS requestPath,
+    u.usage_date AS usageDate,
+    u.status_code AS statusCode,
+    u.cached_content_token_count AS cachedContentTokenCount,
+    u.prompt_token_count AS promptTokenCount,
+    u.thoughts_token_count AS thoughtsTokenCount,
+    u.candidates_token_count AS candidatesTokenCount,
+    u.billable_character_count AS billableCharacterCount,
+    u.cost,
+    u.audit_file AS auditFile,
+    u.created_at AS createdAt
+  FROM usage_records u
+  INNER JOIN users ON users.id = u.user_id
+  LEFT JOIN api_keys ON api_keys.id = u.api_key_id
+`;
+
+function publicRequestLog(row: RequestLogRow) {
+  return {
+    id: row.id,
+    userId: row.userId,
+    username: row.username || `user-${row.userId}`,
+    apiKeyId: row.apiKeyId,
+    apiKeyPrefix: row.apiKeyPrefix,
+    modelId: row.modelId,
+    endpoint: row.endpoint,
+    requestPath: row.requestPath,
+    usageDate: row.usageDate,
+    statusCode: row.statusCode,
+    cachedContentTokenCount: row.cachedContentTokenCount,
+    promptTokenCount: row.promptTokenCount,
+    thoughtsTokenCount: row.thoughtsTokenCount,
+    candidatesTokenCount: row.candidatesTokenCount,
+    billableCharacterCount: row.billableCharacterCount,
+    cost: row.cost,
+    auditFileName: path.basename(row.auditFile || ""),
+    createdAt: row.createdAt,
+  };
+}
+
+function queryValue(value: unknown) {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function queryDate(value: unknown) {
+  const raw = queryValue(value);
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const error = new Error("Date filters must use yyyy-mm-dd") as HttpError;
+  error.status = 400;
+  throw error;
+}
+
+function queryTime(value: unknown) {
+  const raw = queryValue(value);
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) return date.toISOString();
+  const error = new Error("Time filters must use a valid date time") as HttpError;
+  error.status = 400;
+  throw error;
+}
+
+function queryPositiveInt(value: unknown, fallback: number) {
+  const numberValue = Number(queryValue(value));
+  return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : fallback;
+}
+
+function resolveAuditFilePath(auditFile: string) {
+  const root = path.resolve(REQUEST_LOG_DIR);
+  const candidate = path.resolve(path.isAbsolute(auditFile) ? auditFile : path.join(REQUEST_LOG_DIR, auditFile));
+  if (candidate !== root && candidate.startsWith(`${root}${path.sep}`)) return candidate;
+  const error = new Error("Audit file path is outside request log directory") as HttpError;
+  error.status = 400;
+  throw error;
+}
 
 function listAvailableModels() {
   return listPricing()
@@ -235,6 +343,91 @@ app.get("/api/admin/overview", requireSession, requireAdmin, (req, res) => {
     totals,
   });
 });
+
+app.get("/api/admin/request-logs", requireSession, requireAdmin, (req, res) => {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const userId = Number(queryValue(req.query.userId));
+  const startTime = queryTime(req.query.startTime);
+  const endTime = queryTime(req.query.endTime);
+  const startDate = startTime ? "" : queryDate(req.query.startDate || req.query.from);
+  const endDate = endTime ? "" : queryDate(req.query.endDate || req.query.to);
+  const requestedPage = queryPositiveInt(req.query.page, 1);
+  const pageSize = 20;
+
+  if (Number.isFinite(userId) && userId > 0) {
+    where.push("u.user_id = ?");
+    params.push(userId);
+  }
+  if (startTime) {
+    where.push("u.created_at >= ?");
+    params.push(startTime);
+  } else if (startDate) {
+    where.push("u.usage_date >= ?");
+    params.push(startDate);
+  }
+  if (endTime) {
+    where.push("u.created_at <= ?");
+    params.push(endTime);
+  } else if (endDate) {
+    where.push("u.usage_date <= ?");
+    params.push(endDate);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const total = (db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM usage_records u
+    INNER JOIN users ON users.id = u.user_id
+    LEFT JOIN api_keys ON api_keys.id = u.api_key_id
+    ${whereSql}
+  `).get(...params) as { count: number }).count;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const offset = (page - 1) * pageSize;
+  const rows = db.prepare(`
+    ${requestLogSelect}
+    ${whereSql}
+    ORDER BY u.created_at DESC, u.id DESC
+    LIMIT ? OFFSET ?
+  `).all(...params, pageSize, offset) as RequestLogRow[];
+
+  res.json({
+    logs: rows.map(publicRequestLog),
+    users: (db.prepare(`${userSelect} ORDER BY username ASC`).all() as UserRow[]).map(publicUser),
+    page,
+    pageSize,
+    total,
+    totalPages,
+  });
+});
+
+app.get("/api/admin/request-logs/:id", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+  const logId = Number(req.params.id);
+  if (!Number.isFinite(logId)) return res.status(400).json({ error: "Invalid request log id" });
+
+  const row = db.prepare(`
+    ${requestLogSelect}
+    WHERE u.id = ?
+  `).get(logId) as RequestLogRow | undefined;
+  if (!row) return res.status(404).json({ error: "Request log not found" });
+
+  const auditPath = resolveAuditFilePath(row.auditFile);
+  let raw = "";
+  try {
+    raw = await fs.promises.readFile(auditPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return res.status(404).json({ error: "Request log file not found" });
+    }
+    throw error;
+  }
+  try {
+    res.json({ log: publicRequestLog(row), detail: JSON.parse(raw) });
+  } catch {
+    res.json({ log: publicRequestLog(row), detail: null, raw });
+  }
+}));
 
 app.post("/api/admin/provider", requireSession, requireAdmin, (req, res) => {
   try {

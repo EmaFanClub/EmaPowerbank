@@ -8,10 +8,13 @@ import {
   useState,
 } from "react";
 import {
+  ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Eye,
   EyeOff,
+  FileText,
   KeyRound,
   Languages,
   LogOut,
@@ -51,7 +54,9 @@ const messages = {
     adminConsole: "管理控制台",
     aiStudioApiKey: "API Key",
     allModels: "全部模型",
+    allUsers: "全部用户",
     apiKeys: "API 密钥",
+    apiKey: "API Key",
     availableModels: "可用模型",
     balance: "余额",
     balanceUnit: "USD",
@@ -62,6 +67,7 @@ const messages = {
     cachedTokens: "缓存输入",
     cacheHitRate: "缓存命中率",
     candidatesTokens: "候选token数",
+    clearFilters: "清空筛选",
     configKey: "Key",
     configured: "已配置",
     cumulativeTokens: "累计 Token 数",
@@ -85,6 +91,7 @@ const messages = {
     date: "日期",
     deletePrice: "删除价格",
     deleteUser: "删除用户",
+    endDate: "结束时间",
     dark: "暗",
     duplicateAlias: "已存在同名 API key 别名",
     endpoint: "Gemini REST",
@@ -93,7 +100,9 @@ const messages = {
     embeddingTokens: "嵌入",
     invalidJson: "请求体不是有效 JSON",
     fullKeyUnavailable: "旧密钥只保存了哈希，无法显示完整值。请新建一个 key 后复制。",
+    fileName: "文件名",
     globalStats: "全局统计",
+    headers: "请求头",
     input: "输入",
     keyName: "别名",
     language: "语言",
@@ -125,6 +134,7 @@ const messages = {
     providerKeyRequired: "请填写上游凭证",
     register: "注册",
     requestCount: "请求数",
+    requestLogs: "日志",
     requestSuccessRate: "请求成功率",
     revoke: "删除",
     role: "角色",
@@ -135,6 +145,8 @@ const messages = {
     sendTest: "发送测试",
     showPassword: "显示密码",
     signedIn: "已登录",
+    startDate: "开始时间",
+    statusCode: "状态码",
     system: "系统",
     theme: "主题",
     totalCost: "累计费用",
@@ -143,6 +155,7 @@ const messages = {
     testApi: "API 测试",
     uncachedTokens: "未缓存输入",
     unavailable: "不可用",
+    upstream: "上游",
     upstreamConfig: "上游配置",
     usage: "用量",
     usageStats: "费用统计",
@@ -158,7 +171,9 @@ const messages = {
     adminConsole: "Admin console",
     aiStudioApiKey: "API Key",
     allModels: "All models",
+    allUsers: "All users",
     apiKeys: "API keys",
+    apiKey: "API key",
     availableModels: "Available models",
     balance: "Balance",
     balanceUnit: "USD",
@@ -169,6 +184,7 @@ const messages = {
     cachedTokens: "Cached tokens",
     cacheHitRate: "Cache hit rate",
     candidatesTokens: "Candidate tokens",
+    clearFilters: "Clear filters",
     configKey: "Key",
     configured: "Configured",
     cumulativeTokens: "Cumulative tokens",
@@ -192,6 +208,7 @@ const messages = {
     date: "Date",
     deletePrice: "Delete price",
     deleteUser: "Delete user",
+    endDate: "End time",
     dark: "Dark",
     duplicateAlias: "An API key alias with this name already exists",
     endpoint: "Gemini REST",
@@ -200,7 +217,9 @@ const messages = {
     embeddingTokens: "Embedding tokens",
     invalidJson: "Request body is not valid JSON",
     fullKeyUnavailable: "Older keys were stored as hashes only. Create a new key to copy its full value.",
+    fileName: "File name",
     globalStats: "Global stats",
+    headers: "Headers",
     input: "Input",
     keyName: "Alias",
     language: "Language",
@@ -232,6 +251,7 @@ const messages = {
     providerKeyRequired: "Provider credential is required",
     register: "Register",
     requestCount: "Requests",
+    requestLogs: "Logs",
     requestSuccessRate: "Request success rate",
     revoke: "Delete",
     role: "Role",
@@ -242,6 +262,8 @@ const messages = {
     sendTest: "Send test",
     showPassword: "Show password",
     signedIn: "Signed in",
+    startDate: "Start time",
+    statusCode: "Status code",
     system: "System",
     theme: "Theme",
     totalCost: "Accumulated cost",
@@ -250,6 +272,7 @@ const messages = {
     testApi: "API test",
     uncachedTokens: "Uncached tokens",
     unavailable: "Unavailable",
+    upstream: "Upstream",
     upstreamConfig: "Upstream config",
     usage: "Usage",
     usageStats: "Cost stats",
@@ -353,6 +376,72 @@ interface AdminData {
   dailyModelStats?: UsageRow[];
   modelStats?: UsageRow[];
   totals?: UsageRow;
+}
+
+interface RequestLogSummary {
+  id: number;
+  userId: number;
+  username: string;
+  apiKeyId?: number | null;
+  apiKeyPrefix?: string | null;
+  modelId?: string | null;
+  endpoint: string;
+  requestPath: string;
+  usageDate: string;
+  statusCode: number;
+  cachedContentTokenCount: number;
+  promptTokenCount: number;
+  thoughtsTokenCount: number;
+  candidatesTokenCount: number;
+  billableCharacterCount: number;
+  cost: number;
+  auditFileName: string;
+  createdAt: string;
+}
+
+interface RequestLogListResponse {
+  logs?: RequestLogSummary[];
+  users?: User[];
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  totalPages?: number;
+}
+
+interface RequestLogDetailPayload {
+  timestamp?: string;
+  userId?: number;
+  apiKeyId?: number;
+  provider?: Record<string, unknown>;
+  upstreamUrl?: string | null;
+  request?: {
+    method?: string;
+    path?: string;
+    headers?: unknown;
+    body?: unknown;
+  };
+  response?: {
+    statusCode?: number;
+    body?: unknown;
+    error?: unknown;
+  };
+  billing?: {
+    usage?: unknown;
+    cost?: Numberish;
+  };
+}
+
+interface RequestLogDetailResponse {
+  log: RequestLogSummary;
+  detail: RequestLogDetailPayload | null;
+  raw?: string;
+}
+
+interface RequestLogDetailState {
+  loading?: boolean;
+  error?: string;
+  detail?: RequestLogDetailPayload | null;
+  raw?: string;
 }
 
 type ReloadFn = () => Promise<void> | void;
@@ -581,6 +670,51 @@ function formatDateTime(value: string | null | undefined, lang: Lang) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatDateTimeSeconds(value: string | null | undefined, lang: Lang) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat(localeFor(lang), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatLogValue(value: unknown) {
+  if (value === undefined || value === null || value === "") return "-";
+  if (typeof value === "string") {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return value;
+    }
+  }
+
+  try {
+    const serialized = JSON.stringify(value, null, 2);
+    return serialized === undefined ? String(value) : serialized;
+  } catch {
+    return String(value);
+  }
+}
+
+function localDateTimeToIso(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function requestLogUsage(log: RequestLogSummary) {
+  const totalTokens = Number(log.cachedContentTokenCount || 0)
+    + Math.max(Number(log.promptTokenCount || 0) - Number(log.cachedContentTokenCount || 0), 0)
+    + Number(log.thoughtsTokenCount || 0)
+    + Number(log.candidatesTokenCount || 0)
+    + Number(log.billableCharacterCount || 0);
+  return totalTokens;
 }
 
 function maskKey(value = "") {
@@ -1807,6 +1941,235 @@ function UsersPanel({
   );
 }
 
+function RequestLogBlock({ title, text, tone = "blue" }: { title: string; text: string; tone?: "blue" | "amber" | "green" | "red" }) {
+  return (
+    <div className={`request-log-block log-tone-${tone}`}>
+      <h3>{title}</h3>
+      <pre>{text}</pre>
+    </div>
+  );
+}
+
+function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages; lang: Lang }) {
+  const [logs, setLogs] = useState<RequestLogSummary[]>([]);
+  const [filterUsers, setFilterUsers] = useState<User[]>(users);
+  const [selectedUser, setSelectedUser] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [openIds, setOpenIds] = useState<Set<number>>(new Set());
+  const [details, setDetails] = useState<Record<number, RequestLogDetailState>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
+  useEffect(() => {
+    setFilterUsers(users);
+  }, [users]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    if (selectedUser) params.set("userId", selectedUser);
+    const startTime = localDateTimeToIso(startDate);
+    const endTime = localDateTimeToIso(endDate);
+    if (startTime) params.set("startTime", startTime);
+    if (endTime) params.set("endTime", endTime);
+    params.set("page", String(page));
+
+    setLoading(true);
+    setError("");
+    api<RequestLogListResponse>(`/api/admin/request-logs${params.toString() ? `?${params.toString()}` : ""}`)
+      .then((data) => {
+        if (cancelled) return;
+        setLogs(data.logs || []);
+        if (data.users) setFilterUsers(data.users);
+        setPage(data.page || 1);
+        setPageSize(data.pageSize || 20);
+        setTotal(data.total || 0);
+        setTotalPages(data.totalPages || 1);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(getErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedUser, startDate, endDate, page]);
+
+  async function loadDetail(logId: number) {
+    setDetails((current) => ({ ...current, [logId]: { loading: true } }));
+    try {
+      const data = await api<RequestLogDetailResponse>(`/api/admin/request-logs/${logId}`);
+      setDetails((current) => ({
+        ...current,
+        [logId]: { detail: data.detail, raw: data.raw },
+      }));
+    } catch (err) {
+      setDetails((current) => ({
+        ...current,
+        [logId]: { error: getErrorMessage(err) },
+      }));
+    }
+  }
+
+  function toggleLog(logId: number) {
+    const shouldOpen = !openIds.has(logId);
+    setOpenIds((current) => {
+      const next = new Set(current);
+      if (shouldOpen) next.add(logId);
+      else next.delete(logId);
+      return next;
+    });
+    if (shouldOpen && !details[logId]) {
+      loadDetail(logId).catch((err) => {
+        setDetails((current) => ({
+          ...current,
+          [logId]: { error: getErrorMessage(err) },
+        }));
+      });
+    }
+  }
+
+  function clearFilters() {
+    setSelectedUser("");
+    setStartDate("");
+    setEndDate("");
+    setPage(1);
+  }
+
+  function changeUser(value: string) {
+    setSelectedUser(value);
+    setPage(1);
+    setOpenIds(new Set());
+  }
+
+  function changeStartDate(value: string) {
+    setStartDate(value);
+    setPage(1);
+    setOpenIds(new Set());
+  }
+
+  function changeEndDate(value: string) {
+    setEndDate(value);
+    setPage(1);
+    setOpenIds(new Set());
+  }
+
+  const paginationText = lang === "zh"
+    ? `第 ${formatNumber(page, lang)} / ${formatNumber(totalPages, lang)} 页 · 共 ${formatNumber(total, lang)} 条 · 每页 ${formatNumber(pageSize, lang)} 条`
+    : `Page ${formatNumber(page, lang)} / ${formatNumber(totalPages, lang)} · ${formatNumber(total, lang)} total · ${formatNumber(pageSize, lang)} per page`;
+
+  return (
+    <section className="panel wide request-log-panel">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">{t.admin}</span>
+          <h2>{t.requestLogs}</h2>
+        </div>
+      </div>
+      <div className="request-log-filters">
+        <label>
+          {t.users}
+          <select value={selectedUser} onChange={(event) => changeUser(event.target.value)}>
+            <option value="">{t.allUsers}</option>
+            {filterUsers.map((user) => (
+              <option key={user.id} value={user.id}>{user.username}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {t.startDate}
+          <input type="datetime-local" value={startDate} onChange={(event) => changeStartDate(event.target.value)} />
+        </label>
+        <label>
+          {t.endDate}
+          <input type="datetime-local" value={endDate} onChange={(event) => changeEndDate(event.target.value)} />
+        </label>
+        <button className="icon-btn request-log-clear" title={t.clearFilters} onClick={clearFilters} type="button">
+          <X size={17} aria-hidden="true" />
+        </button>
+      </div>
+      {error && <div className="inline-error">{error}</div>}
+      <div className="request-log-list" aria-busy={loading}>
+        {loading && logs.length === 0 ? (
+          <div className="request-log-empty">{t.processing}</div>
+        ) : logs.length === 0 ? (
+          <div className="request-log-empty">{t.noData}</div>
+        ) : logs.map((log) => {
+          const opened = openIds.has(log.id);
+          const detailState = details[log.id];
+          const detail = detailState?.detail;
+          const statusOk = log.statusCode >= 200 && log.statusCode < 300;
+          const responseText = detail?.response?.error
+            ? formatLogValue(detail.response.error)
+            : formatLogValue(detail?.response?.body);
+
+          return (
+            <article className={`request-log-card ${opened ? "open" : ""}`} key={log.id}>
+              <button className="request-log-header" onClick={() => toggleLog(log.id)} type="button">
+                <div className="request-log-title">
+                  <strong>{log.username || `user-${log.userId}`}</strong>
+                  <span>· {formatDateTimeSeconds(log.createdAt, lang)}</span>
+                  <span>· <code>{log.modelId || "unknown"}</code></span>
+                  <span className={`request-log-status ${statusOk ? "ok" : "error"}`}>HTTP {log.statusCode}</span>
+                </div>
+                <ChevronDown size={18} aria-hidden="true" />
+              </button>
+              {opened && (
+                <div className="request-log-body">
+                  <div className="request-log-meta">
+                    <span><strong>{t.requestPath}</strong><code>{log.requestPath}</code></span>
+                    <span><strong>{t.apiKey}</strong><code>{log.apiKeyPrefix ? `${log.apiKeyPrefix}...` : "-"}</code></span>
+                    <span><strong>{t.cost}</strong>{formatDollar(log.cost, lang)}</span>
+                    <span><strong>{t.cumulativeTokens}</strong>{formatNumber(requestLogUsage(log), lang)}</span>
+                    <span><strong>{t.fileName}</strong><code>{log.auditFileName || "-"}</code></span>
+                  </div>
+                  {detailState?.loading && <div className="request-log-empty compact">{t.processing}</div>}
+                  {detailState?.error && <div className="inline-error">{detailState.error}</div>}
+                  {detailState?.raw && <RequestLogBlock title={t.requestLogs} text={detailState.raw} tone="amber" />}
+                  {detail && (
+                    <div className="request-log-sections">
+                      <RequestLogBlock title={t.headers} text={formatLogValue(detail.request?.headers)} tone="amber" />
+                      <RequestLogBlock title={t.requestBody} text={formatLogValue(detail.request?.body)} tone="blue" />
+                      <RequestLogBlock title={t.response} text={responseText} tone={statusOk ? "green" : "red"} />
+                      <RequestLogBlock
+                        title={t.usage}
+                        text={formatLogValue({ cost: detail.billing?.cost, usage: detail.billing?.usage })}
+                        tone="blue"
+                      />
+                      <RequestLogBlock
+                        title={t.upstream}
+                        text={formatLogValue({ upstreamUrl: detail.upstreamUrl, provider: detail.provider })}
+                        tone="amber"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <div className="request-log-pagination">
+        <button className="icon-btn" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} title="Previous page" type="button">
+          <ChevronLeft size={17} aria-hidden="true" />
+        </button>
+        <span>{paginationText}</span>
+        <button className="icon-btn" disabled={loading || page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} title="Next page" type="button">
+          <ChevronRight size={17} aria-hidden="true" />
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function AdminPanel({
   data,
   reload,
@@ -1830,7 +2193,6 @@ function AdminPanel({
   return (
     <div className="page-grid">
       <div className="admin-top-row">
-        <ProviderForm provider={data.provider} reload={reload} t={t} />
         <section className="panel admin-stats-panel">
           <div className="section-head">
             <div>
@@ -1847,6 +2209,7 @@ function AdminPanel({
             <Stat label={t.cacheHitRate} value={formatPercent(cacheHitRate, lang)} tone="blue" />
           </div>
         </section>
+        <ProviderForm provider={data.provider} reload={reload} t={t} />
       </div>
       <PricingPanel pricing={data.pricing || []} reload={reload} t={t} lang={lang} />
       <UsersPanel users={data.users || []} reload={reload} t={t} currentUser={currentUser} />
@@ -1871,7 +2234,7 @@ function AdminPanel({
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState<"dashboard" | "admin">("dashboard");
+  const [active, setActive] = useState<"dashboard" | "admin" | "requestLogs">("dashboard");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [error, setError] = useState("");
@@ -1882,6 +2245,11 @@ export default function App() {
   });
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
   const t: Messages = messages[lang] || messages.zh;
+  const pageTitle = active === "admin"
+    ? t.adminConsole
+    : active === "requestLogs"
+      ? t.requestLogs
+      : t.userDashboard;
 
   function setLang(value: Lang) {
     localStorage.setItem("relay_lang", value);
@@ -1939,6 +2307,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     setError("");
+    if (user.role !== "admin" && active !== "dashboard") setActive("dashboard");
     loadDashboard().catch((err) => setError(getErrorMessage(err)));
     if (user.role === "admin") loadAdmin().catch((err) => setError(getErrorMessage(err)));
   }, [user]);
@@ -1948,6 +2317,7 @@ export default function App() {
     setUser(null);
     setOverview(null);
     setAdminData(null);
+    setActive("dashboard");
   }
 
   if (loading) return <div className="loading">Loading</div>;
@@ -1981,13 +2351,19 @@ export default function App() {
               {t.admin}
             </button>
           )}
+          {user.role === "admin" && (
+            <button className={active === "requestLogs" ? "active" : ""} onClick={() => setActive("requestLogs")} type="button">
+              <FileText size={18} aria-hidden="true" />
+              {t.requestLogs}
+            </button>
+          )}
         </nav>
       </aside>
       <section className="content">
         <header className="topbar">
           <div>
             <span className="eyebrow">{t.signedIn}</span>
-            <h1>{active === "admin" ? t.adminConsole : t.userDashboard}</h1>
+            <h1>{pageTitle}</h1>
           </div>
           <div className="topbar-actions">
             <PreferenceControls lang={lang} setLang={setLang} themeMode={themeMode} setThemeMode={setThemeMode} t={t} />
@@ -2002,7 +2378,13 @@ export default function App() {
         {error && <div className="inline-error">{error}</div>}
         {active === "admin" && user.role === "admin"
           ? adminData && <AdminPanel data={adminData} reload={loadAdmin} t={t} lang={lang} currentUser={user} />
-          : overview && <Dashboard overview={overview} reload={loadDashboard} t={t} lang={lang} />}
+          : active === "requestLogs" && user.role === "admin"
+            ? (
+                <div className="page-grid">
+                  <RequestLogsPanel users={adminData?.users || []} t={t} lang={lang} />
+                </div>
+              )
+            : overview && <Dashboard overview={overview} reload={loadDashboard} t={t} lang={lang} />}
       </section>
     </main>
   );
