@@ -463,8 +463,8 @@ const getRequestLogDetail = asyncHandler(async (req: Request, res: Response) => 
 
 app.get("/api/request-logs", requireSession, listRequestLogs);
 app.get("/api/request-logs/:id", requireSession, getRequestLogDetail);
-app.get("/api/admin/request-logs", requireSession, listRequestLogs);
-app.get("/api/admin/request-logs/:id", requireSession, getRequestLogDetail);
+app.get("/api/admin/request-logs", requireSession, requireAdmin, listRequestLogs);
+app.get("/api/admin/request-logs/:id", requireSession, requireAdmin, getRequestLogDetail);
 
 app.post("/api/admin/provider", requireSession, requireAdmin, (req, res) => {
   try {
