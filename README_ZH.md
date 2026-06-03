@@ -109,6 +109,7 @@ Vertex AI：
 | --- | ---: | ---: | ---: | ---: |
 | `gemini-3.5-flash` | `$1.50/M` | `$9.00/M` | `$0.15/M` | `-` |
 | `gemini-3.1-pro-preview` | `$2.00/M` | `$12.00/M` | `$0.20/M` | `-` |
+| `gemini-embedding-001` | `-` | `-` | `-` | `$0.15/M` |
 | `gemini-embedding-2` | `-` | `-` | `-` | `$0.20/M` |
 
 管理员可以在模型计费表里删除并重新新增模型价格。同一个模型 ID 不允许重复新增。价格为 `0` 或空的项目会被视为不可用，前端显示为 `-`。
@@ -181,13 +182,13 @@ curl "http://localhost:8787/api/v1beta/models/gemini-3.5-flash:generateContent" 
 Embedding：
 
 ```bash
-curl "http://localhost:8787/api/v1beta/models/gemini-embedding-2:batchEmbedContents" \
+curl "http://localhost:8787/api/v1beta/models/gemini-embedding-001:batchEmbedContents" \
   -H "Content-Type: application/json" \
   -H "x-goog-api-key: ep_xxx" \
   -d '{
     "requests": [
       {
-        "model": "gemini-embedding-2",
+        "model": "gemini-embedding-001",
         "content": {
           "role": "user",
           "parts": [
@@ -201,7 +202,7 @@ curl "http://localhost:8787/api/v1beta/models/gemini-embedding-2:batchEmbedConte
 
 AI Studio 上游会直接转发到 `generativelanguage.googleapis.com`。Vertex AI 上游会将 `/api/v1beta/models/{model}:...` 自动映射到当前服务账号的 `project_id`、配置的 `location` 和 Vertex publisher model 路径。
 
-对于 `gemini-embedding-2:batchEmbedContents`，Vertex AI 上游会自动转换为 Vertex 的 `embedContent` 形状，并把响应转换回批量 embedding 形状。
+对于 Vertex AI embedding 请求，`gemini-embedding-001` 和 text embedding 模型会自动转换为 Vertex 的 `predict` 形状；较新的 Gemini embedding 模型会转换为 Vertex 的 `embedContent` 形状。响应会转换回批量 embedding 形状。
 
 ## 数据目录
 

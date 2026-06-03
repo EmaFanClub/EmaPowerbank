@@ -19,11 +19,14 @@ import type { ApiKeyRow, HttpError, JsonRecord, ProviderConfig, UsageCounts } fr
 const rawJson = express.raw({ type: "*/*", limit: "50mb" });
 
 type HeaderMap = Record<string, string>;
+type VertexEmbeddingApiType = "predict" | "embedContent";
 
 interface UpstreamRequest {
   url: string;
   headers: HeaderMap;
   vertexEmbeddingBatchCompat?: boolean;
+  vertexEmbeddingApiType?: VertexEmbeddingApiType;
+  modelId?: string;
 }
 
 interface AuditLogInput {
@@ -47,6 +50,14 @@ export function stripApiPrefix(pathname: string) {
   return pathname.replace(/^\/api\/(v1(?:alpha|beta1?)?\/)/, "/$1");
 }
 
+function vertexEmbeddingApiTypeForModel(modelId: string): VertexEmbeddingApiType {
+  const normalized = modelId.toLowerCase();
+  if ((normalized.includes("gemini") && normalized !== "gemini-embedding-001") || normalized.includes("maas")) {
+    return "embedContent";
+  }
+  return "predict";
+}
+
 export function toVertexPathname(pathname: string, projectId: string, location: string) {
   let vertexPathname = pathname.replace(/^\/v1beta\//, "/v1beta1/");
 
@@ -58,46 +69,132 @@ export function toVertexPathname(pathname: string, projectId: string, location: 
   }
 
   vertexPathname = vertexPathname.replace(
-    /(\/publishers\/google\/models\/gemini-embedding-2):batchEmbedContents$/i,
-    "$1:embedContent",
+    /(\/publishers\/google\/models\/[^/:]*embedding[^/:]*):batchEmbedContents$/i,
+    (_match, modelPath: string) => {
+      const modelId = decodeURIComponent(modelPath.split("/").pop() || "");
+      return `${modelPath}:${vertexEmbeddingApiTypeForModel(modelId)}`;
+    },
   );
 
   return vertexPathname;
 }
 
 function isVertexEmbeddingBatchCompat(pathname: string) {
-  return /\/(?:publishers\/google\/)?models\/gemini-embedding-2:batchEmbedContents$/i.test(pathname);
+  return /\/(?:publishers\/google\/)?models\/[^/:]*embedding[^/:]*:batchEmbedContents$/i.test(pathname);
 }
 
-export function transformVertexEmbeddingBatchRequest(bodyText: string) {
-  const payload = JSON.parse(bodyText || "{}") as JsonRecord;
-  const requests = Array.isArray(payload.requests) ? payload.requests : null;
-  const request = requests ? requests[0] : payload;
+function makeHttpError(message: string, status = 400) {
+  const error = new Error(message) as HttpError;
+  error.status = status;
+  return error;
+}
 
-  if (requests && requests.length !== 1) {
-    const error = new Error("Vertex AI gemini-embedding-2 supports one embedding content per request") as HttpError;
-    error.status = 400;
-    throw error;
+function extractTextFromEmbeddingContent(content: unknown) {
+  if (typeof content === "string") return content;
+  if (!content || typeof content !== "object") return "";
+
+  const parts = (content as JsonRecord).parts;
+  if (!Array.isArray(parts)) return "";
+
+  return parts
+    .map((part) => (part && typeof part === "object" ? (part as JsonRecord).text : ""))
+    .filter((text): text is string => typeof text === "string")
+    .join("");
+}
+
+function setSharedEmbeddingParameter(parameters: JsonRecord, key: string, value: unknown) {
+  if (value === undefined) return;
+  if (parameters[key] !== undefined && JSON.stringify(parameters[key]) !== JSON.stringify(value)) {
+    throw makeHttpError(`Vertex AI embedding predict requires a shared ${key} value for batched requests`);
+  }
+  parameters[key] = value;
+}
+
+function transformVertexEmbeddingBatchPredictRequest(payload: JsonRecord, batchRequests: unknown[], modelId: string) {
+  if (/^gemini-embedding-001$/i.test(modelId) && batchRequests.length !== 1) {
+    throw makeHttpError("Vertex AI gemini-embedding-001 supports one embedding content per request");
   }
 
-  const content = request?.content || payload.content;
-  if (!content) {
-    const error = new Error("Embedding content is required") as HttpError;
-    error.status = 400;
-    throw error;
+  const parameters: JsonRecord = {};
+  const instances = batchRequests.map((item) => {
+    const request = item && typeof item === "object" ? item as JsonRecord : {};
+    const content = extractTextFromEmbeddingContent(request.content || payload.content);
+    if (!content) throw makeHttpError("Embedding content is required");
+
+    const instance: JsonRecord = { content };
+    const taskType = request.taskType ?? request.task_type ?? payload.taskType ?? payload.task_type;
+    if (taskType !== undefined) instance.task_type = taskType;
+    const title = request.title ?? payload.title;
+    if (title !== undefined) instance.title = title;
+    const mimeType = request.mimeType ?? request.mime_type ?? payload.mimeType ?? payload.mime_type;
+    if (mimeType !== undefined) instance.mimeType = mimeType;
+
+    setSharedEmbeddingParameter(parameters, "outputDimensionality", request.outputDimensionality ?? payload.outputDimensionality);
+    setSharedEmbeddingParameter(parameters, "autoTruncate", request.autoTruncate ?? payload.autoTruncate);
+
+    return instance;
+  });
+
+  const body: JsonRecord = { instances };
+  if (Object.keys(parameters).length > 0) body.parameters = parameters;
+  return body;
+}
+
+function transformVertexEmbeddingBatchEmbedContentRequest(payload: JsonRecord, batchRequests: unknown[], modelId: string) {
+  if (batchRequests.length !== 1) {
+    throw makeHttpError(`Vertex AI ${modelId || "embedding"} embedContent supports one embedding content per request`);
   }
+
+  const request = batchRequests[0] && typeof batchRequests[0] === "object" ? batchRequests[0] as JsonRecord : {};
+  const content = request.content || payload.content;
+  if (!content) throw makeHttpError("Embedding content is required");
 
   const body: JsonRecord = { content };
   const embedContentConfig: JsonRecord = {};
   for (const key of ["taskType", "title", "outputDimensionality", "autoTruncate", "documentOcr", "audioTrackExtraction"]) {
-    if (request?.[key] !== undefined) embedContentConfig[key] = request[key];
+    const value = request[key] ?? payload[key];
+    if (value !== undefined) embedContentConfig[key] = value;
   }
   if (Object.keys(embedContentConfig).length > 0) body.embedContentConfig = embedContentConfig;
+  return body;
+}
+
+export function transformVertexEmbeddingBatchRequest(
+  bodyText: string,
+  modelId = "",
+  apiType: VertexEmbeddingApiType = vertexEmbeddingApiTypeForModel(modelId),
+) {
+  const payload = JSON.parse(bodyText || "{}") as JsonRecord;
+  const requests = Array.isArray(payload.requests) ? payload.requests : null;
+  const batchRequests = requests || [payload];
+
+  if (batchRequests.length === 0) {
+    throw makeHttpError("Embedding content is required");
+  }
+
+  const body = apiType === "embedContent"
+    ? transformVertexEmbeddingBatchEmbedContentRequest(payload, batchRequests, modelId)
+    : transformVertexEmbeddingBatchPredictRequest(payload, batchRequests, modelId);
   return JSON.stringify(body);
 }
 
 export function transformVertexEmbeddingBatchResponse(bodyText: string) {
   const payload = JSON.parse(bodyText || "{}") as JsonRecord;
+  if (Array.isArray(payload.predictions)) {
+    const embeddings = payload.predictions
+      .map((prediction) => (prediction && typeof prediction === "object" ? (prediction as JsonRecord).embeddings : null))
+      .filter(Boolean);
+    if (embeddings.length > 0) {
+      const promptTokenCount = embeddings.reduce((total, embedding) => {
+        const statistics = embedding && typeof embedding === "object" ? (embedding as JsonRecord).statistics : null;
+        return total + Number((statistics as JsonRecord | null)?.token_count || (statistics as JsonRecord | null)?.tokenCount || 0);
+      }, 0);
+      const response: JsonRecord = { embeddings };
+      if (promptTokenCount > 0) response.usageMetadata = { promptTokenCount };
+      return JSON.stringify(response);
+    }
+  }
+
   if (!payload.embedding || payload.embeddings) return bodyText;
 
   const embedding = { ...payload.embedding };
@@ -184,6 +281,8 @@ function buildUpstreamRequest(req: Request, provider: ProviderConfig): UpstreamR
   const projectId = credentials.project_id;
   const location = provider.location || "global";
   const vertexEmbeddingBatchCompat = isVertexEmbeddingBatchCompat(incomingUrl.pathname);
+  const modelId = extractModelFromPath(incomingUrl.pathname);
+  const vertexEmbeddingApiType = vertexEmbeddingBatchCompat ? vertexEmbeddingApiTypeForModel(modelId) : undefined;
   const pathname = toVertexPathname(incomingUrl.pathname, projectId, location);
 
   const host = location === "global" ? "aiplatform.googleapis.com" : `${location}-aiplatform.googleapis.com`;
@@ -191,6 +290,8 @@ function buildUpstreamRequest(req: Request, provider: ProviderConfig): UpstreamR
     url: `https://${host}${pathname}${incomingUrl.search}`,
     headers: clientHeaders(req),
     vertexEmbeddingBatchCompat,
+    vertexEmbeddingApiType,
+    modelId,
   };
 }
 
@@ -272,7 +373,11 @@ export const proxyMiddlewares = [
         ? undefined
         : (req.body as Buffer | undefined);
       if (upstream.vertexEmbeddingBatchCompat && body) {
-        body = Buffer.from(transformVertexEmbeddingBatchRequest(Buffer.from(body as Buffer).toString("utf8")));
+        body = Buffer.from(transformVertexEmbeddingBatchRequest(
+          Buffer.from(body as Buffer).toString("utf8"),
+          upstream.modelId,
+          upstream.vertexEmbeddingApiType,
+        ));
         upstream.headers["content-type"] = "application/json";
       }
       const upstreamResponse = await fetch(upstreamUrl, {

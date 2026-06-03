@@ -107,7 +107,7 @@ const seedAdmin = () => {
 };
 
 const seedPricing = () => {
-  const seedVersion = "2026-06-02-default-pricing";
+  const seedVersion = "2026-06-03-default-pricing";
   const currentSeedVersion = (db.prepare("SELECT value FROM settings WHERE key = ?").get("pricing_seed_version") as { value: string } | undefined)?.value;
   if (currentSeedVersion === seedVersion) return;
 
@@ -125,6 +125,13 @@ const seedPricing = () => {
       outputPrice: 12,
       cachePrice: 0.2,
       embeddingInputPrice: 0,
+    },
+    {
+      modelId: "gemini-embedding-001",
+      inputPrice: 0,
+      outputPrice: 0,
+      cachePrice: 0,
+      embeddingInputPrice: 0.15,
     },
     {
       modelId: "gemini-embedding-2",

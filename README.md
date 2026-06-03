@@ -109,6 +109,7 @@ The first startup seeds these default pricing rows:
 | --- | ---: | ---: | ---: | ---: |
 | `gemini-3.5-flash` | `$1.50/M` | `$9.00/M` | `$0.15/M` | `-` |
 | `gemini-3.1-pro-preview` | `$2.00/M` | `$12.00/M` | `$0.20/M` | `-` |
+| `gemini-embedding-001` | `-` | `-` | `-` | `$0.15/M` |
 | `gemini-embedding-2` | `-` | `-` | `-` | `$0.20/M` |
 
 Admins can delete and add model pricing rows. A model ID cannot be added twice. Empty or zero prices are treated as unavailable and displayed as `-`.
@@ -181,13 +182,13 @@ curl "http://localhost:8787/api/v1beta/models/gemini-3.5-flash:generateContent" 
 Embedding:
 
 ```bash
-curl "http://localhost:8787/api/v1beta/models/gemini-embedding-2:batchEmbedContents" \
+curl "http://localhost:8787/api/v1beta/models/gemini-embedding-001:batchEmbedContents" \
   -H "Content-Type: application/json" \
   -H "x-goog-api-key: ep_xxx" \
   -d '{
     "requests": [
       {
-        "model": "gemini-embedding-2",
+        "model": "gemini-embedding-001",
         "content": {
           "role": "user",
           "parts": [
@@ -201,7 +202,7 @@ curl "http://localhost:8787/api/v1beta/models/gemini-embedding-2:batchEmbedConte
 
 AI Studio upstream requests are forwarded to `generativelanguage.googleapis.com`. Vertex AI upstream requests map `/api/v1beta/models/{model}:...` to the configured service account project, location, and Vertex publisher model path.
 
-For `gemini-embedding-2:batchEmbedContents`, the Vertex AI upstream path is converted to Vertex `embedContent`, and the response is converted back to a batch embedding shape.
+For Vertex AI embedding requests, `gemini-embedding-001` and text embedding models are converted to Vertex `predict`; newer Gemini embedding models are converted to Vertex `embedContent`. Responses are converted back to a batch embedding shape.
 
 ## Data Directories
 
