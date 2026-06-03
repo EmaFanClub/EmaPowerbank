@@ -60,6 +60,34 @@ const userSelect = `
   FROM users
 `;
 
+const adminUserSelect = `
+  SELECT
+    users.id,
+    users.username,
+    users.role,
+    users.balance,
+    users.created_at,
+    users.updated_at,
+    COALESCE(SUM(usage_records.cost), 0) AS totalSpent
+  FROM users
+  LEFT JOIN usage_records ON usage_records.user_id = users.id
+  GROUP BY users.id, users.username, users.role, users.balance, users.created_at, users.updated_at
+`;
+
+type AdminUserRow = UserRow & { totalSpent: number };
+
+function publicAdminUser(row: AdminUserRow) {
+  return {
+    ...publicUser(row)!,
+    totalSpent: Number(row.totalSpent || 0),
+  };
+}
+
+function listAdminUsers(orderBy: "created_at" | "username" = "created_at") {
+  const orderSql = orderBy === "username" ? "users.username ASC" : "users.created_at DESC";
+  return (db.prepare(`${adminUserSelect} ORDER BY ${orderSql}`).all() as AdminUserRow[]).map(publicAdminUser);
+}
+
 interface RequestLogRow {
   id: number;
   userId: number;
@@ -343,7 +371,7 @@ app.delete("/api/keys/:id", requireSession, (req, res) => {
 });
 
 app.get("/api/admin/overview", requireSession, requireAdmin, (req, res) => {
-  const users = (db.prepare(`${userSelect} ORDER BY created_at DESC`).all() as UserRow[]).map(publicUser);
+  const users = listAdminUsers();
   const today = isoNow().slice(0, 10);
   const totals = db.prepare(`
     SELECT
@@ -424,7 +452,7 @@ const listRequestLogs = (req: Request, res: Response) => {
   res.json({
     logs: rows.map(publicRequestLog),
     users: req.user!.role === "admin"
-      ? (db.prepare(`${userSelect} ORDER BY username ASC`).all() as UserRow[]).map(publicUser)
+      ? listAdminUsers("username")
       : [publicUser(req.user!)],
     page,
     pageSize,
@@ -525,7 +553,7 @@ app.patch("/api/admin/users/:id/balance", requireSession, requireAdmin, (req, re
   const user = db.prepare(`${userSelect} WHERE id = ?`).get(userId) as UserRow | undefined;
   res.json({
     user: publicUser(user),
-    users: (db.prepare(`${userSelect} ORDER BY created_at DESC`).all() as UserRow[]).map(publicUser),
+    users: listAdminUsers(),
   });
 });
 
@@ -538,7 +566,7 @@ app.delete("/api/admin/users/:id", requireSession, requireAdmin, (req, res) => {
   if (!existing) return res.status(404).json({ error: "User not found" });
 
   db.prepare("DELETE FROM users WHERE id = ?").run(userId);
-  res.json({ users: (db.prepare(`${userSelect} ORDER BY created_at DESC`).all() as UserRow[]).map(publicUser) });
+  res.json({ users: listAdminUsers() });
 });
 
 app.use("/api", (req, res) => {

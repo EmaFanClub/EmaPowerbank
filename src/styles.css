@@ -1571,6 +1571,101 @@ th.right .table-sort {
   max-width: 180px;
 }
 
+.users-table {
+  min-width: 1040px;
+  table-layout: fixed;
+}
+
+.users-col-name {
+  width: 22%;
+}
+
+.users-col-role {
+  width: 10%;
+}
+
+.users-col-date {
+  width: 15%;
+}
+
+.users-col-money {
+  width: 16%;
+}
+
+.users-col-balance {
+  width: 27%;
+}
+
+.users-col-actions {
+  width: 10%;
+}
+
+.users-table tbody tr {
+  cursor: default;
+}
+
+.user-name {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  min-height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.role-badge.admin {
+  color: #0f766e;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.role-badge.user {
+  color: var(--blue-800);
+  border-color: var(--blue-100);
+  background: var(--blue-25);
+}
+
+.date-cell {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.users-table .cell-input {
+  width: 156px;
+  max-width: 156px;
+  height: 34px;
+  text-align: right;
+}
+
+.users-table th:last-child,
+.users-table td:last-child {
+  padding-left: 18px;
+}
+
 @media (max-width: 1080px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1823,6 +1918,18 @@ body {
   border-color: rgba(248, 113, 113, 0.38);
   background: rgba(127, 29, 29, 0.24);
   color: #fca5a5;
+}
+
+:root[data-theme="dark"] .role-badge.admin {
+  color: #99f6e4;
+  border-color: rgba(45, 212, 191, 0.38);
+  background: rgba(20, 184, 166, 0.13);
+}
+
+:root[data-theme="dark"] .role-badge.user {
+  color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.34);
+  background: rgba(37, 99, 235, 0.14);
 }
 
 :root[data-theme="dark"] .log-tone-blue pre {

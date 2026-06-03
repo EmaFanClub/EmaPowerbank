@@ -50,6 +50,7 @@ const emptyStats: UsageRow = {
 const messages = {
   zh: {
     account: "账户",
+    actions: "操作",
     admin: "管理",
     adminConsole: "管理控制台",
     aiStudioApiKey: "API Key",
@@ -135,6 +136,7 @@ const messages = {
     provider: "Provider",
     providerKeyRequired: "请填写上游凭证",
     register: "注册",
+    registeredAt: "注册日期",
     requestCount: "请求数",
     requestLogs: "日志",
     requestSuccessRate: "请求成功率",
@@ -155,6 +157,7 @@ const messages = {
     totalCost: "累计费用",
     totalDuration: "总耗时",
     totalConsumed: "累计费用",
+    totalSpent: "已消费金额",
     todayConsumed: "今日花费",
     testApi: "API 测试",
     uncachedTokens: "未缓存输入",
@@ -164,6 +167,8 @@ const messages = {
     usage: "用量",
     usageStats: "费用统计",
     userDashboard: "用户面板",
+    userManagement: "用户管理",
+    userRole: "用户",
     username: "用户名",
     users: "用户",
     clearProvider: "清空配置",
@@ -171,6 +176,7 @@ const messages = {
   },
   en: {
     account: "Account",
+    actions: "Actions",
     admin: "Admin",
     adminConsole: "Admin console",
     aiStudioApiKey: "API Key",
@@ -256,6 +262,7 @@ const messages = {
     provider: "Provider",
     providerKeyRequired: "Provider credential is required",
     register: "Register",
+    registeredAt: "Registered",
     requestCount: "Requests",
     requestLogs: "Logs",
     requestSuccessRate: "Request success rate",
@@ -276,6 +283,7 @@ const messages = {
     totalCost: "Accumulated cost",
     totalDuration: "Total duration",
     totalConsumed: "Total spent",
+    totalSpent: "Total spent",
     todayConsumed: "Today spent",
     testApi: "API test",
     uncachedTokens: "Uncached tokens",
@@ -285,6 +293,8 @@ const messages = {
     usage: "Usage",
     usageStats: "Cost stats",
     userDashboard: "User dashboard",
+    userManagement: "User management",
+    userRole: "User",
     username: "Username",
     users: "Users",
     clearProvider: "Clear config",
@@ -322,6 +332,7 @@ interface User {
   username: string;
   role: "admin" | "user";
   balance: number;
+  totalSpent?: number;
   createdAt?: string;
 }
 
@@ -703,6 +714,15 @@ function formatDateTime(value: string | null | undefined, lang: Lang) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatDate(value: string | null | undefined, lang: Lang) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat(localeFor(lang), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).format(new Date(value));
 }
 
@@ -1808,6 +1828,14 @@ interface PricingFormState {
   embeddingInputPrice: string;
 }
 
+const emptyPricingForm: PricingFormState = {
+  modelId: "",
+  inputPrice: "",
+  outputPrice: "",
+  cachePrice: "",
+  embeddingInputPrice: "",
+};
+
 function PricingPanel({
   pricing,
   reload,
@@ -1819,13 +1847,7 @@ function PricingPanel({
   t: Messages;
   lang: Lang;
 }) {
-  const [form, setForm] = useState<PricingFormState>({
-    modelId: "",
-    inputPrice: "",
-    outputPrice: "",
-    cachePrice: "",
-    embeddingInputPrice: "",
-  });
+  const [form, setForm] = useState<PricingFormState>(emptyPricingForm);
   const [error, setError] = useState("");
 
   async function save(event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement>) {
@@ -1839,6 +1861,7 @@ function PricingPanel({
     if (!window.confirm(t.confirmAddPrice)) return;
     try {
       await api("/api/admin/pricing", { method: "POST", body: { ...form, modelId } });
+      setForm(emptyPricingForm);
       await reload();
     } catch (err) {
       const message = getErrorMessage(err);
@@ -1931,11 +1954,13 @@ function UsersPanel({
   users,
   reload,
   t,
+  lang,
   currentUser,
 }: {
   users: User[];
   reload: ReloadFn;
   t: Messages;
+  lang: Lang;
   currentUser: User;
 }) {
   const [balances, setBalances] = useState<Record<number, string>>({});
@@ -1986,39 +2011,64 @@ function UsersPanel({
       <div className="section-head">
         <div>
           <span className="eyebrow">{t.users}</span>
-          <h2>{t.balance}</h2>
+          <h2>{t.userManagement}</h2>
         </div>
       </div>
       {error && <div className="inline-error">{error}</div>}
       <div className="table-wrap">
-        <table>
+        <table className="users-table">
+          <colgroup>
+            <col className="users-col-name" />
+            <col className="users-col-role" />
+            <col className="users-col-date" />
+            <col className="users-col-money" />
+            <col className="users-col-balance" />
+            <col className="users-col-actions" />
+          </colgroup>
           <thead>
             <tr>
               <th>{t.username}</th>
               <th>{t.role}</th>
-              <th>{t.balance}</th>
-              <th></th>
+              <th>{t.registeredAt}</th>
+              <th className="right">{t.totalSpent}</th>
+              <th className="right">{t.balance}</th>
+              <th className="right">{t.actions}</th>
             </tr>
           </thead>
           <tbody>
-            {users.map((item) => (
+            {users.length === 0 ? (
+              <tr>
+                <td className="empty-cell" colSpan={6}>{t.noData}</td>
+              </tr>
+            ) : users.map((item) => (
               <tr key={item.id}>
-                <td>{item.username}</td>
-                <td>{item.role}</td>
                 <td>
-                  <input
-                    className="cell-input"
-                    type="number"
-                    step="0.0001"
-                    value={balances[item.id] ?? 0}
-                    onChange={(event) => setBalances((current) => ({ ...current, [item.id]: event.target.value }))}
-                    onBlur={() => formatBalanceEdit(item.id)}
-                  />
+                  <strong className="user-name">{item.username}</strong>
+                </td>
+                <td>
+                  <span className={`role-badge ${item.role === "admin" ? "admin" : "user"}`}>
+                    {item.role === "admin" ? t.admin : t.userRole}
+                  </span>
+                </td>
+                <td className="date-cell">{formatDate(item.createdAt, lang)}</td>
+                <td className="right">{formatDollar(item.totalSpent || 0, lang)}</td>
+                <td className="right">
+                  <div className="balance-edit">
+                    <input
+                      className="cell-input"
+                      aria-label={`${item.username} ${t.balance}`}
+                      type="number"
+                      step="0.0001"
+                      value={balances[item.id] ?? 0}
+                      onChange={(event) => setBalances((current) => ({ ...current, [item.id]: event.target.value }))}
+                      onBlur={() => formatBalanceEdit(item.id)}
+                    />
+                    <button className="icon-btn primary" title={t.saveBalance} onClick={() => save(item.id)} type="button">
+                      <Save size={16} aria-hidden="true" />
+                    </button>
+                  </div>
                 </td>
                 <td className="right">
-                  <button className="icon-btn primary" title={t.saveBalance} onClick={() => save(item.id)} type="button">
-                    <Save size={16} aria-hidden="true" />
-                  </button>
                   <button className="icon-btn danger" disabled={item.id === currentUser?.id} title={item.id === currentUser?.id ? t.cannotDeleteSelf : t.deleteUser} onClick={() => remove(item.id)} type="button">
                     <Trash2 size={16} aria-hidden="true" />
                   </button>
@@ -2384,7 +2434,7 @@ function AdminPanel({
         <ProviderForm provider={data.provider} reload={reload} t={t} />
       </div>
       <PricingPanel pricing={data.pricing || []} reload={reload} t={t} lang={lang} />
-      <UsersPanel users={data.users || []} reload={reload} t={t} currentUser={currentUser} />
+      <UsersPanel users={data.users || []} reload={reload} t={t} lang={lang} currentUser={currentUser} />
       <section className="panel wide usage-panel">
         <div className="section-head">
           <div>
