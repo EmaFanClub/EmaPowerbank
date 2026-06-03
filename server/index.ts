@@ -452,7 +452,7 @@ const listRequestLogs = (req: Request, res: Response) => {
   res.json({
     logs: rows.map(publicRequestLog),
     users: req.user!.role === "admin"
-      ? listAdminUsers("username")
+      ? (db.prepare(`${userSelect} ORDER BY username ASC`).all() as UserRow[]).map(publicUser)
       : [publicUser(req.user!)],
     page,
     pageSize,
