@@ -149,8 +149,11 @@ export function recordUsage({
   usage,
   cost,
   auditFile,
+  durationMs = 0,
+  timing,
 }: RecordUsageInput) {
   const ts = isoNow();
+  const timingJson = timing ? JSON.stringify(timing) : null;
   db.transaction(() => {
     db.prepare(`
       INSERT INTO usage_records (
@@ -167,9 +170,11 @@ export function recordUsage({
         candidates_token_count,
         billable_character_count,
         cost,
+        duration_ms,
+        timing_json,
         audit_file,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       userId,
       apiKeyId,
@@ -184,6 +189,8 @@ export function recordUsage({
       usage.candidatesTokenCount,
       usage.billableCharacterCount,
       cost,
+      durationMs,
+      timingJson,
       auditFile,
       ts,
     );

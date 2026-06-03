@@ -79,6 +79,8 @@ CREATE TABLE IF NOT EXISTS usage_records (
   candidates_token_count INTEGER NOT NULL DEFAULT 0,
   billable_character_count INTEGER NOT NULL DEFAULT 0,
   cost REAL NOT NULL DEFAULT 0,
+  duration_ms REAL NOT NULL DEFAULT 0,
+  timing_json TEXT,
   audit_file TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
@@ -92,6 +94,8 @@ const ensureColumn = (table: string, column: string, definition: string) => {
 };
 
 ensureColumn("api_keys", "key_value", "key_value TEXT");
+ensureColumn("usage_records", "duration_ms", "duration_ms REAL NOT NULL DEFAULT 0");
+ensureColumn("usage_records", "timing_json", "timing_json TEXT");
 
 const seedAdmin = () => {
   const existingAdmin = db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").get() as { id: number } | undefined;

@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from "express";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { REQUEST_LOG_DIR, getProviderConfig, isoNow } from "./db.js";
 import { findApiKey, touchApiKey } from "./auth.js";
 import {
@@ -14,7 +15,7 @@ import {
   recordUsage,
 } from "./billing.js";
 import { getVertexAccessToken, parseVertexCredentials } from "./googleProvider.js";
-import type { ApiKeyRow, HttpError, JsonRecord, ProviderConfig, UsageCounts } from "./types.js";
+import type { ApiKeyRow, HttpError, JsonRecord, ProviderConfig, RequestTiming, UsageCounts } from "./types.js";
 
 const rawJson = express.raw({ type: "*/*", limit: "50mb" });
 
@@ -39,11 +40,23 @@ interface AuditLogInput {
   statusCode: number;
   usage: UsageCounts;
   cost: number;
+  timing?: RequestTiming;
   error?: unknown;
 }
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+function elapsedMs(start: number, end = performance.now()) {
+  return Number(Math.max(end - start, 0).toFixed(2));
+}
+
+function createTimingSnapshot(start: number, segments: Record<string, number>): RequestTiming {
+  return {
+    totalMs: elapsedMs(start),
+    segments: { ...segments },
+  };
 }
 
 export function stripApiPrefix(pathname: string) {
@@ -305,6 +318,7 @@ async function saveAuditLog({
   statusCode,
   usage,
   cost,
+  timing,
   error,
 }: AuditLogInput) {
   const payload = {
@@ -332,6 +346,7 @@ async function saveAuditLog({
       usage,
       cost,
     },
+    timing,
   };
 
   const absolutePath = path.join(REQUEST_LOG_DIR, fileName);
@@ -342,6 +357,14 @@ async function saveAuditLog({
 export const proxyMiddlewares = [
   rawJson,
   async function geminiProxy(req: Request, res: Response, _next: NextFunction) {
+    const requestStartedAt = performance.now();
+    const timingSegments: Record<string, number> = {};
+    const markSegment = (name: string, start: number, end = performance.now()) => {
+      timingSegments[name] = elapsedMs(start, end);
+      return end;
+    };
+
+    const preflightStartedAt = requestStartedAt;
     const relayApiKey = extractRelayApiKey(req);
     const apiKeyRow = findApiKey(relayApiKey);
     if (!apiKeyRow) return res.status(401).json({ error: "Invalid relay API key" });
@@ -353,6 +376,7 @@ export const proxyMiddlewares = [
     if (apiKeyRow.balance <= 0 && hasNonZeroPrice(modelId)) {
       return res.status(402).json({ error: "Insufficient balance" });
     }
+    markSegment("preflightMs", preflightStartedAt);
 
     const fileName = safeLogFileName(apiKeyRow.user_id);
     let upstreamUrl = "";
@@ -362,30 +386,38 @@ export const proxyMiddlewares = [
     let cost = 0;
 
     try {
+      let segmentStartedAt = performance.now();
       const upstream = buildUpstreamRequest(req, provider);
       upstreamUrl = upstream.url;
+      markSegment("upstreamSetupMs", segmentStartedAt);
 
       if (provider.mode === "vertex") {
+        segmentStartedAt = performance.now();
         upstream.headers.authorization = `Bearer ${await getVertexAccessToken(provider)}`;
+        markSegment("vertexAccessTokenMs", segmentStartedAt);
       }
 
       let body: any = ["GET", "HEAD"].includes(req.method.toUpperCase())
         ? undefined
         : (req.body as Buffer | undefined);
       if (upstream.vertexEmbeddingBatchCompat && body) {
+        segmentStartedAt = performance.now();
         body = Buffer.from(transformVertexEmbeddingBatchRequest(
           Buffer.from(body as Buffer).toString("utf8"),
           upstream.modelId,
           upstream.vertexEmbeddingApiType,
         ));
         upstream.headers["content-type"] = "application/json";
+        markSegment("requestTransformMs", segmentStartedAt);
       }
+      segmentStartedAt = performance.now();
       const upstreamResponse = await fetch(upstreamUrl, {
         method: req.method,
         headers: upstream.headers,
         body,
         duplex: "half",
       } as RequestInit & { duplex: "half" });
+      markSegment("upstreamHeadersMs", segmentStartedAt);
 
       statusCode = upstreamResponse.status;
       res.status(statusCode);
@@ -393,15 +425,24 @@ export const proxyMiddlewares = [
 
       if (!upstreamResponse.body) {
         responseBody = "";
+        segmentStartedAt = performance.now();
         res.end();
+        markSegment("downstreamResponseMs", segmentStartedAt);
       } else if (upstream.vertexEmbeddingBatchCompat) {
+        segmentStartedAt = performance.now();
         responseBody = await upstreamResponse.text();
+        markSegment("upstreamBodyMs", segmentStartedAt);
         if (statusCode >= 200 && statusCode < 300) {
+          segmentStartedAt = performance.now();
           responseBody = transformVertexEmbeddingBatchResponse(responseBody);
           res.set("content-type", "application/json; charset=utf-8");
+          markSegment("responseTransformMs", segmentStartedAt);
         }
+        segmentStartedAt = performance.now();
         res.send(responseBody);
+        markSegment("downstreamResponseMs", segmentStartedAt);
       } else {
+        segmentStartedAt = performance.now();
         const reader = upstreamResponse.body.getReader();
         const chunks = [];
         while (true) {
@@ -412,12 +453,20 @@ export const proxyMiddlewares = [
             res.write(Buffer.from(value));
           }
         }
+        markSegment("upstreamBodyMs", segmentStartedAt);
+        segmentStartedAt = performance.now();
         res.end();
+        markSegment("downstreamResponseMs", segmentStartedAt);
         responseBody = Buffer.concat(chunks).toString("utf8");
       }
 
+      segmentStartedAt = performance.now();
       usage = normalizeUsageForModel(modelId, extractUsage(responseBody));
       cost = statusCode >= 200 && statusCode < 300 ? calculateCost(modelId, usage) : 0;
+      markSegment("usageBillingMs", segmentStartedAt);
+
+      const auditTiming = createTimingSnapshot(requestStartedAt, timingSegments);
+      segmentStartedAt = performance.now();
       const auditPath = await saveAuditLog({
         req,
         fileName,
@@ -428,7 +477,10 @@ export const proxyMiddlewares = [
         statusCode,
         usage,
         cost,
+        timing: auditTiming,
       });
+      markSegment("auditLogMs", segmentStartedAt);
+      const finalTiming = createTimingSnapshot(requestStartedAt, timingSegments);
 
       recordUsage({
         userId: apiKeyRow.user_id,
@@ -440,13 +492,20 @@ export const proxyMiddlewares = [
         usage,
         cost,
         auditFile: auditPath,
+        durationMs: finalTiming.totalMs,
+        timing: finalTiming,
       });
       touchApiKey(apiKeyRow.id);
     } catch (error) {
+      const errorHandlingStartedAt = performance.now();
       const relayError = error as HttpError;
       statusCode = relayError.status || 502;
       responseBody = JSON.stringify({ error: "Relay upstream request failed", detail: errorMessage(error) });
       if (!res.headersSent) res.status(statusCode).json(JSON.parse(responseBody));
+      markSegment("errorHandlingMs", errorHandlingStartedAt);
+
+      const auditTiming = createTimingSnapshot(requestStartedAt, timingSegments);
+      const auditStartedAt = performance.now();
       const auditPath = await saveAuditLog({
         req,
         fileName,
@@ -457,8 +516,12 @@ export const proxyMiddlewares = [
         statusCode,
         usage,
         cost,
+        timing: auditTiming,
         error,
       });
+      markSegment("auditLogMs", auditStartedAt);
+      const finalTiming = createTimingSnapshot(requestStartedAt, timingSegments);
+
       recordUsage({
         userId: apiKeyRow.user_id,
         apiKeyId: apiKeyRow.id,
@@ -469,6 +532,8 @@ export const proxyMiddlewares = [
         usage,
         cost,
         auditFile: auditPath,
+        durationMs: finalTiming.totalMs,
+        timing: finalTiming,
       });
     }
   },

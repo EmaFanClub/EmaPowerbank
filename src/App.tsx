@@ -94,6 +94,7 @@ const messages = {
     endDate: "结束时间",
     dark: "暗",
     duplicateAlias: "已存在同名 API key 别名",
+    duration: "耗时",
     endpoint: "Gemini REST",
     endpointHelp: "请求路径继续使用 Gemini REST 形状，只是在本地服务前加 /api。",
     embeddingInput: "嵌入",
@@ -149,7 +150,9 @@ const messages = {
     statusCode: "状态码",
     system: "系统",
     theme: "主题",
+    timing: "分段耗时",
     totalCost: "累计费用",
+    totalDuration: "总耗时",
     totalConsumed: "累计费用",
     todayConsumed: "今日花费",
     testApi: "API 测试",
@@ -211,6 +214,7 @@ const messages = {
     endDate: "End time",
     dark: "Dark",
     duplicateAlias: "An API key alias with this name already exists",
+    duration: "Duration",
     endpoint: "Gemini REST",
     endpointHelp: "Keep the Gemini REST path shape and prefix it with /api on this local service.",
     embeddingInput: "Embedding",
@@ -266,7 +270,9 @@ const messages = {
     statusCode: "Status code",
     system: "System",
     theme: "Theme",
+    timing: "Timing",
     totalCost: "Accumulated cost",
+    totalDuration: "Total duration",
     totalConsumed: "Total spent",
     todayConsumed: "Today spent",
     testApi: "API test",
@@ -395,6 +401,8 @@ interface RequestLogSummary {
   candidatesTokenCount: number;
   billableCharacterCount: number;
   cost: number;
+  durationMs?: number;
+  timing?: RequestTiming | null;
   auditFileName: string;
   createdAt: string;
 }
@@ -429,6 +437,12 @@ interface RequestLogDetailPayload {
     usage?: unknown;
     cost?: Numberish;
   };
+  timing?: RequestTiming | null;
+}
+
+interface RequestTiming {
+  totalMs: number;
+  segments: Record<string, number>;
 }
 
 interface RequestLogDetailResponse {
@@ -548,6 +562,24 @@ function localeFor(lang: Lang) {
 
 function formatNumber(value: Numberish, lang: Lang) {
   return new Intl.NumberFormat(localeFor(lang)).format(Number(value || 0));
+}
+
+function formatDurationMs(value: Numberish, lang: Lang) {
+  const duration = Number(value || 0);
+  if (!Number.isFinite(duration) || duration <= 0) return "-";
+
+  if (duration < 1000) {
+    const decimals = duration < 10 ? 2 : duration < 100 ? 1 : 0;
+    return `${new Intl.NumberFormat(localeFor(lang), {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }).format(duration)} ms`;
+  }
+
+  return `${new Intl.NumberFormat(localeFor(lang), {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(duration / 1000)} s`;
 }
 
 function formatMoney(value: Numberish, lang: Lang) {
@@ -700,6 +732,62 @@ function formatLogValue(value: unknown) {
   } catch {
     return String(value);
   }
+}
+
+const timingSegmentLabels: Record<string, { zh: string; en: string }> = {
+  preflightMs: { zh: "预检", en: "Preflight" },
+  upstreamSetupMs: { zh: "上游准备", en: "Upstream setup" },
+  vertexAccessTokenMs: { zh: "Vertex token", en: "Vertex token" },
+  requestTransformMs: { zh: "请求转换", en: "Request transform" },
+  upstreamHeadersMs: { zh: "上游首包", en: "Upstream headers" },
+  upstreamBodyMs: { zh: "上游响应体", en: "Upstream body" },
+  responseTransformMs: { zh: "响应转换", en: "Response transform" },
+  downstreamResponseMs: { zh: "客户端响应", en: "Client response" },
+  usageBillingMs: { zh: "用量计费", en: "Usage billing" },
+  auditLogMs: { zh: "审计写入", en: "Audit write" },
+  errorHandlingMs: { zh: "错误处理", en: "Error handling" },
+  untrackedMs: { zh: "其他", en: "Other" },
+};
+
+const timingSegmentOrder = Object.keys(timingSegmentLabels);
+
+const timingSegmentColors: Record<string, string> = {
+  preflightMs: "#7aa2d8",
+  upstreamSetupMs: "#7ab8ad",
+  vertexAccessTokenMs: "#a58acb",
+  requestTransformMs: "#d4a56f",
+  upstreamHeadersMs: "#76aac2",
+  upstreamBodyMs: "#8bbf8f",
+  responseTransformMs: "#c9a36f",
+  downstreamResponseMs: "#cf8fa8",
+  usageBillingMs: "#8f9ed8",
+  auditLogMs: "#9aa4b2",
+  errorHandlingMs: "#d58b86",
+  untrackedMs: "#b4bbc6",
+};
+
+function sortedTimingEntries(timing: RequestTiming | null | undefined) {
+  if (!timing) return [];
+  const entries = Object.entries(timing.segments || {})
+    .filter(([, value]) => Number.isFinite(Number(value)))
+    .sort(([left], [right]) => {
+      const leftIndex = timingSegmentOrder.indexOf(left);
+      const rightIndex = timingSegmentOrder.indexOf(right);
+      if (leftIndex === -1 && rightIndex === -1) return left.localeCompare(right);
+      if (leftIndex === -1) return 1;
+      if (rightIndex === -1) return -1;
+      return leftIndex - rightIndex;
+    });
+  const segmentTotal = entries.reduce((total, [, value]) => total + Number(value || 0), 0);
+  const untracked = Math.max(Number(timing.totalMs || 0) - segmentTotal, 0);
+  if (untracked > 0.5) {
+    entries.push(["untrackedMs", Number(untracked.toFixed(2))]);
+  }
+  return entries;
+}
+
+function timingSegmentColor(key: string) {
+  return timingSegmentColors[key] || "#b4bbc6";
 }
 
 function localDateTimeToIso(value: string) {
@@ -1950,7 +2038,81 @@ function RequestLogBlock({ title, text, tone = "blue" }: { title: string; text: 
   );
 }
 
-function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages; lang: Lang }) {
+function RequestTimingBar({ timing, t, lang }: { timing: RequestTiming; t: Messages; lang: Lang }) {
+  const entries = sortedTimingEntries(timing);
+  const denominator = Number(timing.totalMs || 0) || entries.reduce((total, [, value]) => total + Number(value || 0), 0);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+
+  if (entries.length === 0 || denominator <= 0) {
+    return null;
+  }
+
+  return (
+    <div className="request-log-block request-timing-block">
+      <div className="request-timing-head">
+        <h3>{t.timing}</h3>
+        <span>{formatDurationMs(timing.totalMs, lang)}</span>
+      </div>
+      <div className="request-timing-bar" aria-label={`${t.totalDuration}: ${formatDurationMs(timing.totalMs, lang)}`}>
+        {entries.map(([key, rawValue]) => {
+          const value = Number(rawValue || 0);
+          const percent = denominator > 0 ? (value / denominator) * 100 : 0;
+          const label = timingSegmentLabels[key]?.[lang] || key;
+          const activeClass = activeKey ? (activeKey === key ? "active" : "dimmed") : "";
+          return (
+            <span
+              aria-label={`${label}: ${formatDurationMs(value, lang)}`}
+              className={`request-timing-segment ${activeClass}`}
+              key={key}
+              onBlur={() => setActiveKey(null)}
+              onFocus={() => setActiveKey(key)}
+              onMouseEnter={() => setActiveKey(key)}
+              onMouseLeave={() => setActiveKey(null)}
+              style={{ backgroundColor: timingSegmentColor(key), flexBasis: `${percent}%` }}
+              tabIndex={0}
+              title={`${label}: ${formatDurationMs(value, lang)} (${formatPercent(value / denominator, lang)})`}
+            />
+          );
+        })}
+      </div>
+      <div className="request-timing-legend">
+        {entries.map(([key, rawValue]) => {
+          const value = Number(rawValue || 0);
+          const label = timingSegmentLabels[key]?.[lang] || key;
+          const activeClass = activeKey ? (activeKey === key ? "active" : "dimmed") : "";
+          return (
+            <div
+              className={`request-timing-item ${activeClass}`}
+              key={key}
+              onBlur={() => setActiveKey(null)}
+              onFocus={() => setActiveKey(key)}
+              onMouseEnter={() => setActiveKey(key)}
+              onMouseLeave={() => setActiveKey(null)}
+              tabIndex={0}
+              title={`${label}: ${formatDurationMs(value, lang)} (${formatPercent(value / denominator, lang)})`}
+            >
+              <span className="request-timing-swatch" style={{ backgroundColor: timingSegmentColor(key) }} />
+              <span>{label}</span>
+              <strong>{formatDurationMs(value, lang)}</strong>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RequestLogsPanel({
+  users = [],
+  t,
+  lang,
+  canFilterUsers = false,
+}: {
+  users?: User[];
+  t: Messages;
+  lang: Lang;
+  canFilterUsers?: boolean;
+}) {
   const [logs, setLogs] = useState<RequestLogSummary[]>([]);
   const [filterUsers, setFilterUsers] = useState<User[]>(users);
   const [selectedUser, setSelectedUser] = useState("");
@@ -1972,7 +2134,7 @@ function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages
   useEffect(() => {
     let cancelled = false;
     const params = new URLSearchParams();
-    if (selectedUser) params.set("userId", selectedUser);
+    if (canFilterUsers && selectedUser) params.set("userId", selectedUser);
     const startTime = localDateTimeToIso(startDate);
     const endTime = localDateTimeToIso(endDate);
     if (startTime) params.set("startTime", startTime);
@@ -1981,7 +2143,7 @@ function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages
 
     setLoading(true);
     setError("");
-    api<RequestLogListResponse>(`/api/admin/request-logs${params.toString() ? `?${params.toString()}` : ""}`)
+    api<RequestLogListResponse>(`/api/request-logs${params.toString() ? `?${params.toString()}` : ""}`)
       .then((data) => {
         if (cancelled) return;
         setLogs(data.logs || []);
@@ -2001,12 +2163,12 @@ function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages
     return () => {
       cancelled = true;
     };
-  }, [selectedUser, startDate, endDate, page]);
+  }, [canFilterUsers, selectedUser, startDate, endDate, page]);
 
   async function loadDetail(logId: number) {
     setDetails((current) => ({ ...current, [logId]: { loading: true } }));
     try {
-      const data = await api<RequestLogDetailResponse>(`/api/admin/request-logs/${logId}`);
+      const data = await api<RequestLogDetailResponse>(`/api/request-logs/${logId}`);
       setDetails((current) => ({
         ...current,
         [logId]: { detail: data.detail, raw: data.raw },
@@ -2070,20 +2232,22 @@ function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages
     <section className="panel wide request-log-panel">
       <div className="section-head">
         <div>
-          <span className="eyebrow">{t.admin}</span>
+          <span className="eyebrow">{canFilterUsers ? t.admin : t.account}</span>
           <h2>{t.requestLogs}</h2>
         </div>
       </div>
-      <div className="request-log-filters">
-        <label>
-          {t.users}
-          <select value={selectedUser} onChange={(event) => changeUser(event.target.value)}>
-            <option value="">{t.allUsers}</option>
-            {filterUsers.map((user) => (
-              <option key={user.id} value={user.id}>{user.username}</option>
-            ))}
-          </select>
-        </label>
+      <div className={`request-log-filters ${canFilterUsers ? "" : "compact"}`}>
+        {canFilterUsers && (
+          <label>
+            {t.users}
+            <select value={selectedUser} onChange={(event) => changeUser(event.target.value)}>
+              <option value="">{t.allUsers}</option>
+              {filterUsers.map((user) => (
+                <option key={user.id} value={user.id}>{user.username}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           {t.startDate}
           <input type="datetime-local" value={startDate} onChange={(event) => changeStartDate(event.target.value)} />
@@ -2106,6 +2270,8 @@ function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages
           const opened = openIds.has(log.id);
           const detailState = details[log.id];
           const detail = detailState?.detail;
+          const timing = log.timing || detail?.timing;
+          const durationText = formatDurationMs(log.durationMs, lang);
           const statusOk = log.statusCode >= 200 && log.statusCode < 300;
           const responseText = detail?.response?.error
             ? formatLogValue(detail.response.error)
@@ -2118,6 +2284,7 @@ function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages
                   <strong>{log.username || `user-${log.userId}`}</strong>
                   <span>· {formatDateTimeSeconds(log.createdAt, lang)}</span>
                   <span>· <code>{log.modelId || "unknown"}</code></span>
+                  {durationText !== "-" && <span className="request-log-duration" title={t.totalDuration}>{durationText}</span>}
                   <span className={`request-log-status ${statusOk ? "ok" : "error"}`}>HTTP {log.statusCode}</span>
                 </div>
                 <ChevronDown size={18} aria-hidden="true" />
@@ -2128,12 +2295,14 @@ function RequestLogsPanel({ users = [], t, lang }: { users?: User[]; t: Messages
                     <span><strong>{t.requestPath}</strong><code>{log.requestPath}</code></span>
                     <span><strong>{t.apiKey}</strong><code>{log.apiKeyPrefix ? `${log.apiKeyPrefix}...` : "-"}</code></span>
                     <span><strong>{t.cost}</strong>{formatDollar(log.cost, lang)}</span>
+                    <span><strong>{t.duration}</strong>{durationText}</span>
                     <span><strong>{t.cumulativeTokens}</strong>{formatNumber(requestLogUsage(log), lang)}</span>
                     <span><strong>{t.fileName}</strong><code>{log.auditFileName || "-"}</code></span>
                   </div>
                   {detailState?.loading && <div className="request-log-empty compact">{t.processing}</div>}
                   {detailState?.error && <div className="inline-error">{detailState.error}</div>}
                   {detailState?.raw && <RequestLogBlock title={t.requestLogs} text={detailState.raw} tone="amber" />}
+                  {timing && <RequestTimingBar timing={timing} t={t} lang={lang} />}
                   {detail && (
                     <div className="request-log-sections">
                       <RequestLogBlock title={t.headers} text={formatLogValue(detail.request?.headers)} tone="amber" />
@@ -2307,7 +2476,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     setError("");
-    if (user.role !== "admin" && active !== "dashboard") setActive("dashboard");
+    if (user.role !== "admin" && active === "admin") setActive("dashboard");
     loadDashboard().catch((err) => setError(getErrorMessage(err)));
     if (user.role === "admin") loadAdmin().catch((err) => setError(getErrorMessage(err)));
   }, [user]);
@@ -2351,12 +2520,10 @@ export default function App() {
               {t.admin}
             </button>
           )}
-          {user.role === "admin" && (
-            <button className={active === "requestLogs" ? "active" : ""} onClick={() => setActive("requestLogs")} type="button">
-              <FileText size={18} aria-hidden="true" />
-              {t.requestLogs}
-            </button>
-          )}
+          <button className={active === "requestLogs" ? "active" : ""} onClick={() => setActive("requestLogs")} type="button">
+            <FileText size={18} aria-hidden="true" />
+            {t.requestLogs}
+          </button>
         </nav>
       </aside>
       <section className="content">
@@ -2378,10 +2545,15 @@ export default function App() {
         {error && <div className="inline-error">{error}</div>}
         {active === "admin" && user.role === "admin"
           ? adminData && <AdminPanel data={adminData} reload={loadAdmin} t={t} lang={lang} currentUser={user} />
-          : active === "requestLogs" && user.role === "admin"
+          : active === "requestLogs"
             ? (
                 <div className="page-grid">
-                  <RequestLogsPanel users={adminData?.users || []} t={t} lang={lang} />
+                  <RequestLogsPanel
+                    users={user.role === "admin" ? adminData?.users || [] : [user]}
+                    t={t}
+                    lang={lang}
+                    canFilterUsers={user.role === "admin"}
+                  />
                 </div>
               )
             : overview && <Dashboard overview={overview} reload={loadDashboard} t={t} lang={lang} />}
