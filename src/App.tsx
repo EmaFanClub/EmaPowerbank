@@ -1900,7 +1900,7 @@ function PricingPanel({
         </div>
       </div>
       <div className="table-wrap">
-        <table>
+        <table className="pricing-table">
           <thead>
             <tr>
               <th>{t.model}</th>
@@ -2037,9 +2037,9 @@ function UsersPanel({
               <th>{t.username}</th>
               <th>{t.role}</th>
               <th>{t.registeredAt}</th>
-              <th className="right">{t.totalSpent}</th>
+              <th>{t.totalSpent}</th>
               <th className="balance-heading">{t.balance}</th>
-              <th className="right">{t.actions}</th>
+              <th className="right" aria-label={t.actions}></th>
             </tr>
           </thead>
           <tbody>
@@ -2058,7 +2058,7 @@ function UsersPanel({
                   </span>
                 </td>
                 <td className="date-cell">{formatDate(item.createdAt, lang)}</td>
-                <td className="right">{formatDollarFixed(item.totalSpent || 0, lang, 4)}</td>
+                <td>{formatDollarFixed(item.totalSpent || 0, lang, 4)}</td>
                 <td className="balance-cell">
                   <div className="balance-edit">
                     <input

@@ -1561,6 +1561,18 @@ th.right .table-sort {
   min-width: 190px;
 }
 
+.pricing-table th,
+.pricing-table td,
+.users-table th,
+.users-table td {
+  text-align: left;
+}
+
+.pricing-table .right,
+.users-table .right {
+  text-align: right;
+}
+
 .compact-action {
   min-height: 34px;
   padding: 0 11px;
@@ -1572,33 +1584,33 @@ th.right .table-sort {
 }
 
 .users-table {
-  width: max-content;
-  min-width: 900px;
+  width: 100%;
+  min-width: 920px;
   table-layout: fixed;
 }
 
 .users-col-name {
-  width: 180px;
+  width: 20%;
 }
 
 .users-col-role {
-  width: 84px;
+  width: 8%;
 }
 
 .users-col-date {
-  width: 128px;
+  width: 13%;
 }
 
 .users-col-money {
-  width: 132px;
+  width: 13%;
 }
 
 .users-col-balance {
-  width: 248px;
+  width: 32%;
 }
 
 .users-col-actions {
-  width: 108px;
+  width: 14%;
 }
 
 .users-table tbody tr {
