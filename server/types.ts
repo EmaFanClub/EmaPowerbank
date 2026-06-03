@@ -101,6 +101,11 @@ export interface UsageCounts {
   billableCharacterCount: number;
 }
 
+export interface RequestTiming {
+  totalMs: number;
+  segments: Record<string, number>;
+}
+
 export interface AggregateUsageRow extends UsageCounts {
   date?: string;
   modelId?: string;
@@ -123,6 +128,8 @@ export interface RecordUsageInput {
   usage: UsageCounts;
   cost: number;
   auditFile: string;
+  durationMs?: number;
+  timing?: RequestTiming;
 }
 
 export interface HttpError extends Error {

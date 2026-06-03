@@ -38,7 +38,7 @@ import {
 } from "./billing.js";
 import { createGoogleGenAIClient, normalizeProviderConfig } from "./googleProvider.js";
 import { proxyMiddlewares } from "./proxy.js";
-import type { HttpError, UserRow } from "./types.js";
+import type { HttpError, RequestTiming, UserRow } from "./types.js";
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -77,6 +77,8 @@ interface RequestLogRow {
   candidatesTokenCount: number;
   billableCharacterCount: number;
   cost: number;
+  durationMs: number;
+  timingJson: string | null;
   auditFile: string;
   createdAt: string;
 }
@@ -99,12 +101,34 @@ const requestLogSelect = `
     u.candidates_token_count AS candidatesTokenCount,
     u.billable_character_count AS billableCharacterCount,
     u.cost,
+    u.duration_ms AS durationMs,
+    u.timing_json AS timingJson,
     u.audit_file AS auditFile,
     u.created_at AS createdAt
   FROM usage_records u
   INNER JOIN users ON users.id = u.user_id
   LEFT JOIN api_keys ON api_keys.id = u.api_key_id
 `;
+
+function parseRequestTiming(value: string | null): RequestTiming | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as RequestTiming;
+    if (!Number.isFinite(Number(parsed?.totalMs)) || !parsed?.segments || typeof parsed.segments !== "object") {
+      return null;
+    }
+    return {
+      totalMs: Number(parsed.totalMs),
+      segments: Object.fromEntries(
+        Object.entries(parsed.segments)
+          .filter(([, segmentValue]) => Number.isFinite(Number(segmentValue)))
+          .map(([key, segmentValue]) => [key, Number(segmentValue)]),
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
 
 function publicRequestLog(row: RequestLogRow) {
   return {
@@ -124,6 +148,8 @@ function publicRequestLog(row: RequestLogRow) {
     candidatesTokenCount: row.candidatesTokenCount,
     billableCharacterCount: row.billableCharacterCount,
     cost: row.cost,
+    durationMs: Number(row.durationMs || 0),
+    timing: parseRequestTiming(row.timingJson),
     auditFileName: path.basename(row.auditFile || ""),
     createdAt: row.createdAt,
   };
@@ -344,7 +370,7 @@ app.get("/api/admin/overview", requireSession, requireAdmin, (req, res) => {
   });
 });
 
-app.get("/api/admin/request-logs", requireSession, requireAdmin, (req, res) => {
+const listRequestLogs = (req: Request, res: Response) => {
   const where: string[] = [];
   const params: unknown[] = [];
   const userId = Number(queryValue(req.query.userId));
@@ -355,7 +381,10 @@ app.get("/api/admin/request-logs", requireSession, requireAdmin, (req, res) => {
   const requestedPage = queryPositiveInt(req.query.page, 1);
   const pageSize = 20;
 
-  if (Number.isFinite(userId) && userId > 0) {
+  if (req.user!.role !== "admin") {
+    where.push("u.user_id = ?");
+    params.push(req.user!.id);
+  } else if (Number.isFinite(userId) && userId > 0) {
     where.push("u.user_id = ?");
     params.push(userId);
   }
@@ -394,22 +423,25 @@ app.get("/api/admin/request-logs", requireSession, requireAdmin, (req, res) => {
 
   res.json({
     logs: rows.map(publicRequestLog),
-    users: (db.prepare(`${userSelect} ORDER BY username ASC`).all() as UserRow[]).map(publicUser),
+    users: req.user!.role === "admin"
+      ? (db.prepare(`${userSelect} ORDER BY username ASC`).all() as UserRow[]).map(publicUser)
+      : [publicUser(req.user!)],
     page,
     pageSize,
     total,
     totalPages,
   });
-});
+};
 
-app.get("/api/admin/request-logs/:id", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+const getRequestLogDetail = asyncHandler(async (req: Request, res: Response) => {
   const logId = Number(req.params.id);
   if (!Number.isFinite(logId)) return res.status(400).json({ error: "Invalid request log id" });
 
   const row = db.prepare(`
     ${requestLogSelect}
     WHERE u.id = ?
-  `).get(logId) as RequestLogRow | undefined;
+      AND (? = 'admin' OR u.user_id = ?)
+  `).get(logId, req.user!.role, req.user!.id) as RequestLogRow | undefined;
   if (!row) return res.status(404).json({ error: "Request log not found" });
 
   const auditPath = resolveAuditFilePath(row.auditFile);
@@ -427,7 +459,12 @@ app.get("/api/admin/request-logs/:id", requireSession, requireAdmin, asyncHandle
   } catch {
     res.json({ log: publicRequestLog(row), detail: null, raw });
   }
-}));
+});
+
+app.get("/api/request-logs", requireSession, listRequestLogs);
+app.get("/api/request-logs/:id", requireSession, getRequestLogDetail);
+app.get("/api/admin/request-logs", requireSession, listRequestLogs);
+app.get("/api/admin/request-logs/:id", requireSession, getRequestLogDetail);
 
 app.post("/api/admin/provider", requireSession, requireAdmin, (req, res) => {
   try {

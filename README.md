@@ -228,12 +228,13 @@ request-logs/
 - Upstream URL with sensitive query values redacted
 - Response status and body
 - Extracted usage and cost
+- Total request duration and timing breakdown
 
-## Admin Logs Page
+## Logs Page
 
-Only admins can open the `Logs` page or call its APIs. The list view is indexed from the SQLite `usage_records` table, so user/time filters and 20-item pagination do not scan or load every JSON audit file. Each list row includes database-backed metadata such as user, request time, model, status code, usage, cost, and the audit filename.
+Signed-in users can open the `Logs` page to view only their own request logs. Admins can view all users' logs and use the user filter. The backend enforces this on both the list and detail APIs, so non-admin users cannot access another user's log by guessing an id. The list view is indexed from the SQLite `usage_records` table, so user/time filters and 20-item pagination do not scan or load every JSON audit file. Each list row includes database-backed metadata such as user, request time, model, status code, usage, cost, total duration, and the audit filename.
 
-When an admin expands one row, the backend reads that row's `audit_file` from `request-logs/` and returns the full JSON details for display. If the database record still exists but the JSON file has been deleted, the list row remains visible, while expanding it returns `404 Request log file not found` and the UI shows that error for the row.
+When a permitted user expands one row, the backend reads that row's `audit_file` from `request-logs/` and returns the full JSON details for display. If the database record still exists but the JSON file has been deleted, the list row remains visible, while expanding it returns `404 Request log file not found` and the UI shows that error for the row.
 
 Request and response bodies are stored as-is and may contain user data. In production, restrict directory permissions and define a cleanup, archival, and backup policy.
 
