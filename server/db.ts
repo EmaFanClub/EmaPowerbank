@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS usage_records (
   audit_file TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_usage_records_user_id_usage_date
+  ON usage_records(user_id, usage_date);
 `);
 
 const ensureColumn = (table: string, column: string, definition: string) => {
