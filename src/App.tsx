@@ -620,6 +620,13 @@ function formatDollar(value: Numberish, lang: Lang) {
   return `$${formatCost(value, lang)}`;
 }
 
+function formatDollarFixed(value: Numberish, lang: Lang, fractionDigits: number) {
+  return `$${new Intl.NumberFormat(localeFor(lang), {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(Number(value || 0))}`;
+}
+
 function formatPricePerMillion(value: Numberish, lang: Lang) {
   return `${formatDollar(value, lang)}/M`;
 }
@@ -2031,7 +2038,7 @@ function UsersPanel({
               <th>{t.role}</th>
               <th>{t.registeredAt}</th>
               <th className="right">{t.totalSpent}</th>
-              <th className="right">{t.balance}</th>
+              <th className="balance-heading">{t.balance}</th>
               <th className="right">{t.actions}</th>
             </tr>
           </thead>
@@ -2051,8 +2058,8 @@ function UsersPanel({
                   </span>
                 </td>
                 <td className="date-cell">{formatDate(item.createdAt, lang)}</td>
-                <td className="right">{formatDollar(item.totalSpent || 0, lang)}</td>
-                <td className="right">
+                <td className="right">{formatDollarFixed(item.totalSpent || 0, lang, 4)}</td>
+                <td className="balance-cell">
                   <div className="balance-edit">
                     <input
                       className="cell-input"

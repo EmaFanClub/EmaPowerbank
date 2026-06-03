@@ -1572,32 +1572,33 @@ th.right .table-sort {
 }
 
 .users-table {
-  min-width: 1040px;
+  width: max-content;
+  min-width: 900px;
   table-layout: fixed;
 }
 
 .users-col-name {
-  width: 22%;
+  width: 180px;
 }
 
 .users-col-role {
-  width: 10%;
+  width: 84px;
 }
 
 .users-col-date {
-  width: 15%;
+  width: 128px;
 }
 
 .users-col-money {
-  width: 16%;
+  width: 132px;
 }
 
 .users-col-balance {
-  width: 27%;
+  width: 248px;
 }
 
 .users-col-actions {
-  width: 10%;
+  width: 108px;
 }
 
 .users-table tbody tr {
@@ -1649,21 +1650,27 @@ th.right .table-sort {
 .balance-edit {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 10px;
+  width: fit-content;
   max-width: 100%;
 }
 
 .users-table .cell-input {
-  width: 156px;
-  max-width: 156px;
+  width: 122px;
+  max-width: 122px;
   height: 34px;
   text-align: right;
 }
 
+.balance-heading,
+.balance-cell {
+  text-align: left;
+}
+
 .users-table th:last-child,
 .users-table td:last-child {
-  padding-left: 18px;
+  padding-left: 22px;
 }
 
 @media (max-width: 1080px) {
