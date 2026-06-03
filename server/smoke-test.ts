@@ -66,8 +66,34 @@ assert.equal(
   "/v1beta1/projects/p/locations/global/publishers/google/models/gemini-3.5-flash:generateContent",
 );
 assert.equal(
+  toVertexPathname("/v1beta/models/gemini-embedding-001:batchEmbedContents", "p", "global"),
+  "/v1beta1/projects/p/locations/global/publishers/google/models/gemini-embedding-001:predict",
+);
+assert.equal(
+  toVertexPathname("/v1beta1/projects/p/locations/global/publishers/google/models/gemini-embedding-001:batchEmbedContents", "other", "global"),
+  "/v1beta1/projects/p/locations/global/publishers/google/models/gemini-embedding-001:predict",
+);
+assert.equal(
+  toVertexPathname("/v1beta/models/text-embedding-005:batchEmbedContents", "p", "global"),
+  "/v1beta1/projects/p/locations/global/publishers/google/models/text-embedding-005:predict",
+);
+assert.equal(
   toVertexPathname("/v1beta/models/gemini-embedding-2:batchEmbedContents", "p", "global"),
   "/v1beta1/projects/p/locations/global/publishers/google/models/gemini-embedding-2:embedContent",
+);
+assert.deepEqual(
+  JSON.parse(transformVertexEmbeddingBatchRequest(JSON.stringify({
+    requests: [{
+      model: "models/gemini-embedding-001",
+      content: { role: "user", parts: [{ text: "hello" }] },
+      taskType: "RETRIEVAL_DOCUMENT",
+      outputDimensionality: 64,
+    }],
+  }), "gemini-embedding-001")),
+  {
+    instances: [{ content: "hello", task_type: "RETRIEVAL_DOCUMENT" }],
+    parameters: { outputDimensionality: 64 },
+  },
 );
 assert.deepEqual(
   JSON.parse(transformVertexEmbeddingBatchRequest(JSON.stringify({
@@ -76,10 +102,26 @@ assert.deepEqual(
       content: { role: "user", parts: [{ text: "hello" }] },
       outputDimensionality: 64,
     }],
-  }))),
+  }), "gemini-embedding-2")),
   {
     content: { role: "user", parts: [{ text: "hello" }] },
     embedContentConfig: { outputDimensionality: 64 },
+  },
+);
+assert.deepEqual(
+  JSON.parse(transformVertexEmbeddingBatchResponse(JSON.stringify({
+    predictions: [
+      {
+        embeddings: {
+          values: [0.1],
+          statistics: { token_count: 1 },
+        },
+      },
+    ],
+  }))),
+  {
+    embeddings: [{ values: [0.1], statistics: { token_count: 1 } }],
+    usageMetadata: { promptTokenCount: 1 },
   },
 );
 assert.deepEqual(
