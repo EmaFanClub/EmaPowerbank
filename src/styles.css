@@ -755,6 +755,11 @@ select:hover {
   margin-top: 12px;
 }
 
+.key-warning {
+  margin-top: 10px;
+  font-weight: 800;
+}
+
 .key-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

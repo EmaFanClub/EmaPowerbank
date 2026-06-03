@@ -57,6 +57,7 @@ const messages = {
     allUsers: "全部用户",
     apiKeys: "API 密钥",
     apiKey: "API Key",
+    apiKeyRequired: "请先新建一个 API key",
     availableModels: "可用模型",
     balance: "余额",
     balanceUnit: "USD",
@@ -177,6 +178,7 @@ const messages = {
     allUsers: "All users",
     apiKeys: "API keys",
     apiKey: "API key",
+    apiKeyRequired: "Create an API key first",
     availableModels: "Available models",
     balance: "Balance",
     balanceUnit: "USD",
@@ -1548,6 +1550,7 @@ function Dashboard({
           </button>
         </div>
         {error && !isKeyDialogOpen && <div className="inline-error">{error}</div>}
+        {overview.apiKeys.length === 0 && <div className="inline-error key-warning">{t.apiKeyRequired}</div>}
         <div className="key-list">
           {overview.apiKeys.map((item) => (
             <div className="key-row" key={item.id}>
