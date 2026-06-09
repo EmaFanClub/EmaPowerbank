@@ -52,6 +52,7 @@ import {
   formatStatCurrency,
   localDateTimeToIso,
   maskKey,
+  normalizeCurrencyDraftInput,
 } from "./lib/format";
 import {
   defaultTestBodyForModel,
@@ -1478,7 +1479,10 @@ function UsersPanel({
                         type="number"
                         step="0.1"
                         value={balances[item.id] ?? 0}
-                        onChange={(event) => setBalances((current) => ({ ...current, [item.id]: event.target.value }))}
+                        onChange={(event) => setBalances((current) => ({
+                          ...current,
+                          [item.id]: normalizeCurrencyDraftInput(event.target.value),
+                        }))}
                         onBlur={() => normalizeBalanceEdit(item.id)}
                       />
                     </div>
@@ -1559,7 +1563,7 @@ function FeedbackReviewPanel({
   }
 
   function updateReward(id: string, value: string) {
-    setRewardDrafts((current) => ({ ...current, [id]: value }));
+    setRewardDrafts((current) => ({ ...current, [id]: normalizeCurrencyDraftInput(value) }));
     setError("");
   }
 
@@ -1684,7 +1688,7 @@ function FeedbackReviewPanel({
                           min="0"
                           step="0.1"
                           type="number"
-                          value={rewardDrafts[item.id] || "5"}
+                          value={rewardDrafts[item.id] ?? "5"}
                           onChange={(event) => updateReward(item.id, event.target.value)}
                         />
                       </div>
