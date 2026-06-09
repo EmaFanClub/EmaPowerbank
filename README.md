@@ -136,7 +136,6 @@ After logging in, users can:
 - Copy the Base URL
 - See available model IDs and prices
 - Send test requests from the built-in API test panel
-- Submit feedback with a required text description and an optional image attachment
 - View daily cost statistics
 
 Base URL:
@@ -212,7 +211,6 @@ Runtime creates:
 ```text
 data/relay.sqlite
 request-logs/
-feedback/
 ```
 
 `data/relay.sqlite` stores:
@@ -231,8 +229,6 @@ feedback/
 - Response status and body
 - Extracted usage and cost
 - Total request duration and timing breakdown
-
-`feedback/` stores one directory per submitted feedback package. Each package directory is named `feedback-<id>-<timestamp>/` and contains `feedback.json` plus the optional uploaded image attachment. The JSON file includes the feedback id, timestamp, submitting user, description, and attachment metadata.
 
 ## Logs Page
 
@@ -266,10 +262,8 @@ Recommended production checklist:
 - Set a strong `JWT_SECRET`
 - Change the default admin password
 - Restrict permissions for `data/` and `request-logs/`
-- Restrict permissions for `feedback/`
 - Back up `data/relay.sqlite`
 - Clean up or archive `request-logs/` as needed
-- Clean up or archive `feedback/` as needed
 - If running behind a reverse proxy, configure request body size and timeout limits for model responses
 
 ## Verification
