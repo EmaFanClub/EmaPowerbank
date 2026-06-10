@@ -74,6 +74,14 @@ export interface FeedbackMetadata {
   review: FeedbackReview;
 }
 
+export interface FeedbackPackagePage {
+  feedbacks: FeedbackMetadata[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
 export interface MultipartPart {
   name: string;
   filename?: string;
@@ -403,6 +411,29 @@ export async function listFeedbackPackages(feedbackDir: string, status: Feedback
     const dateDiff = Date.parse(right.timestamp) - Date.parse(left.timestamp);
     return dateDiff || right.id.localeCompare(left.id);
   });
+}
+
+export async function listFeedbackPackagePage(
+  feedbackDir: string,
+  status: FeedbackReviewFilter = "pending",
+  requestedPage = 1,
+  pageSize = 10,
+): Promise<FeedbackPackagePage> {
+  const allFeedbacks = await listFeedbackPackages(feedbackDir, status);
+  const total = allFeedbacks.length;
+  const normalizedPageSize = Number.isInteger(pageSize) && pageSize > 0 ? pageSize : 10;
+  const totalPages = Math.max(1, Math.ceil(total / normalizedPageSize));
+  const normalizedRequestedPage = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const page = Math.min(normalizedRequestedPage, totalPages);
+  const offset = (page - 1) * normalizedPageSize;
+
+  return {
+    feedbacks: allFeedbacks.slice(offset, offset + normalizedPageSize),
+    page,
+    pageSize: normalizedPageSize,
+    total,
+    totalPages,
+  };
 }
 
 export async function readFeedbackPackage(feedbackDir: string, id: string) {

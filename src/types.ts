@@ -214,6 +214,10 @@ export interface FeedbackReviewItem {
 
 export interface FeedbackListResponse {
   feedbacks: FeedbackReviewItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface FeedbackReviewActionResponse {

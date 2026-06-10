@@ -44,7 +44,7 @@ import {
   approveFeedbackPackage,
   createFeedbackPackage,
   feedbackPayloadFromMultipart,
-  listFeedbackPackages,
+  listFeedbackPackagePage,
   multipartBoundary,
   parseMultipartFields,
   readFeedbackPackage,
@@ -542,8 +542,9 @@ app.post("/api/feedback", requireSession, asyncHandler(async (req, res) => {
 
 app.get("/api/admin/feedbacks", requireSession, requireAdmin, asyncHandler(async (req, res) => {
   const status = queryFeedbackStatus(req.query.status);
-  const feedbacks = await listFeedbackPackages(FEEDBACK_DIR, status);
-  res.json({ feedbacks });
+  const requestedPage = queryPositiveInt(req.query.page, 1);
+  const pageSize = 10;
+  res.json(await listFeedbackPackagePage(FEEDBACK_DIR, status, requestedPage, pageSize));
 }));
 
 app.get("/api/admin/feedbacks/:id/attachment", requireSession, requireAdmin, asyncHandler(async (req, res) => {

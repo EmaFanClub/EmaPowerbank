@@ -1528,16 +1528,28 @@ function FeedbackReviewPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
+    const params = new URLSearchParams();
+    params.set("status", status);
+    params.set("page", String(page));
+
     setLoading(true);
     setError("");
-    api<FeedbackListResponse>(`/api/admin/feedbacks?status=${status}`)
+    api<FeedbackListResponse>(`/api/admin/feedbacks?${params.toString()}`)
       .then((data) => {
         if (cancelled) return;
         const rows = data.feedbacks || [];
         setFeedbacks(rows);
+        setPage(data.page || 1);
+        setPageSize(data.pageSize || 10);
+        setTotal(data.total || 0);
+        setTotalPages(data.totalPages || 1);
         setRewardDrafts((current) => ({
           ...Object.fromEntries(rows.filter((item) => item.review.status === "pending").map((item) => [item.id, current[item.id] || "5"])),
         }));
@@ -1552,7 +1564,12 @@ function FeedbackReviewPanel({
     return () => {
       cancelled = true;
     };
-  }, [status, refreshToken]);
+  }, [status, refreshToken, page]);
+
+  function changeStatus(value: FeedbackReviewStatus) {
+    setStatus(value);
+    setPage(1);
+  }
 
   function setBusy(id: string, busy: boolean) {
     setBusyIds((current) => {
@@ -1608,6 +1625,10 @@ function FeedbackReviewPanel({
     }
   }
 
+  const paginationText = lang === "zh"
+    ? `第 ${formatNumber(page, lang)} / ${formatNumber(totalPages, lang)} 页 · 共 ${formatNumber(total, lang)} 条 · 每页 ${formatNumber(pageSize, lang)} 条`
+    : `Page ${formatNumber(page, lang)} / ${formatNumber(totalPages, lang)} · ${formatNumber(total, lang)} total · ${formatNumber(pageSize, lang)} per page`;
+
   return (
     <section className="panel wide feedback-review-panel">
       <div className="section-head">
@@ -1621,7 +1642,7 @@ function FeedbackReviewPanel({
           <button
             className={status === item ? "active" : ""}
             key={item}
-            onClick={() => setStatus(item)}
+            onClick={() => changeStatus(item)}
             type="button"
           >
             {feedbackStatusLabel(item, t)}
@@ -1717,6 +1738,15 @@ function FeedbackReviewPanel({
             </article>
           );
         })}
+      </div>
+      <div className="request-log-pagination">
+        <button className="icon-btn" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} title="Previous page" type="button">
+          <ChevronLeft size={17} aria-hidden="true" />
+        </button>
+        <span>{paginationText}</span>
+        <button className="icon-btn" disabled={loading || page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} title="Next page" type="button">
+          <ChevronRight size={17} aria-hidden="true" />
+        </button>
       </div>
     </section>
   );
