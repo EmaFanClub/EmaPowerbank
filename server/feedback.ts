@@ -443,13 +443,14 @@ function csvCell(value: string) {
 export function exportFeedbackCsv(feedbacks: FeedbackMetadata[]) {
   const rows = feedbacks.map((feedback) => [
     csvCell(feedback.user.username),
+    csvCell(String(feedback.user.id)),
     csvCell(feedback.description),
     csvCell(feedback.attachment?.fileName || ""),
     csvCell(feedback.review.status),
   ].join(","));
 
   return [
-    "user-name,description,attachment-filename,review-status",
+    "user-name,user-id,description,attachment-filename,review-status",
     ...rows,
     "",
   ].join("\n");

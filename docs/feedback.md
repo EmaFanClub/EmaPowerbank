@@ -102,7 +102,7 @@ feedback-fb_<uuid>-<timestamp>.<ext>
 
 - 按 `待审核`、`已通过`、`已拒绝` 筛选反馈
 - 每个状态列表按每页 10 条分页，并显示当前页、总页数、总条数
-- 一键导出全部反馈为 CSV，字段为 `user-name`、`description`、`attachment-filename`、`review-status`
+- 一键导出全部反馈为 CSV，字段为 `user-name`、`user-id`、`description`、`attachment-filename`、`review-status`
 - 查看反馈提交人、提交时间、描述、包名和附件信息
 - 对图片附件进行预览
 - 拒绝反馈
