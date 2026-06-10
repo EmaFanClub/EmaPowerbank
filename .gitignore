@@ -146,5 +146,7 @@ vite.config.ts.timestamp-*
 # Local relay runtime
 data/
 request-logs/
+feedback/
 .codex/
+docs/superpowers/
 .DS_Store

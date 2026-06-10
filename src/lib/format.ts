@@ -56,6 +56,10 @@ export function formatCurrencyInputValue(value: Numberish, fractionDigits = 4) {
   return Number(value || 0).toFixed(fractionDigits);
 }
 
+export function normalizeCurrencyDraftInput(value: string) {
+  return value === "" ? "0" : value;
+}
+
 export function formatPricePerMillion(value: Numberish, lang: Lang) {
   return `${formatPreciseCurrency(value, lang)}/M`;
 }

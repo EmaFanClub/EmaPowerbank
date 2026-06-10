@@ -166,3 +166,61 @@ export interface RequestLogDetailState {
   detail?: RequestLogDetailPayload | null;
   raw?: string;
 }
+
+export interface FeedbackSubmitResponse {
+  feedback: {
+    id: string;
+    timestamp: string;
+    packageName: string;
+    attachments: {
+      fileName: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+    }[];
+    review?: FeedbackReview;
+  };
+}
+
+export type FeedbackReviewStatus = "pending" | "approved" | "rejected";
+
+export interface FeedbackUserSummary {
+  id: number;
+  username: string;
+  role: "admin" | "user";
+}
+
+export interface FeedbackReview {
+  status: FeedbackReviewStatus;
+  rewardAmount: number;
+  reviewedBy: FeedbackUserSummary | null;
+  reviewedAt: string | null;
+}
+
+export interface FeedbackReviewItem {
+  id: string;
+  timestamp: string;
+  packageName: string;
+  user: FeedbackUserSummary;
+  description: string;
+  attachments: {
+    fileName: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  }[];
+  review: FeedbackReview;
+}
+
+export interface FeedbackListResponse {
+  feedbacks: FeedbackReviewItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface FeedbackReviewActionResponse {
+  feedback: FeedbackReviewItem;
+  users?: User[];
+}

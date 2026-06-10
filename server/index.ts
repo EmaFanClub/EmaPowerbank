@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import path from "node:path";
 import fs from "node:fs";
 import {
+  FEEDBACK_DIR,
   REQUEST_LOG_DIR,
   clearProviderConfig,
   db,
@@ -38,6 +39,21 @@ import {
 } from "./billing.js";
 import { createGoogleGenAIClient, normalizeProviderConfig } from "./googleProvider.js";
 import { proxyMiddlewares } from "./proxy.js";
+import {
+  FEEDBACK_MAX_BODY_BYTES,
+  approveFeedbackPackage,
+  createFeedbackPackage,
+  exportFeedbackCsv,
+  feedbackPayloadFromMultipart,
+  listFeedbackPackagePage,
+  listFeedbackPackages,
+  multipartBoundary,
+  parseMultipartFields,
+  readFeedbackPackage,
+  readRequestBuffer,
+  rejectFeedbackPackage,
+  resolveFeedbackAttachmentPath,
+} from "./feedback.js";
 import type { HttpError, RequestTiming, UserRow } from "./types.js";
 
 const app = express();
@@ -210,6 +226,14 @@ function queryTime(value: unknown) {
 function queryPositiveInt(value: unknown, fallback: number) {
   const numberValue = Number(queryValue(value));
   return Number.isInteger(numberValue) && numberValue > 0 ? numberValue : fallback;
+}
+
+function queryFeedbackStatus(value: unknown) {
+  const raw = queryValue(value) || "pending";
+  if (raw === "pending" || raw === "approved" || raw === "rejected" || raw === "all") return raw;
+  const error = new Error("Feedback status must be pending, approved, rejected, or all") as HttpError;
+  error.status = 400;
+  throw error;
 }
 
 function resolveAuditFilePath(auditFile: string) {
@@ -493,6 +517,98 @@ app.get("/api/request-logs", requireSession, listRequestLogs);
 app.get("/api/request-logs/:id", requireSession, getRequestLogDetail);
 app.get("/api/admin/request-logs", requireSession, requireAdmin, listRequestLogs);
 app.get("/api/admin/request-logs/:id", requireSession, requireAdmin, getRequestLogDetail);
+
+app.post("/api/feedback", requireSession, asyncHandler(async (req, res) => {
+  const boundary = multipartBoundary(req.headers["content-type"]);
+  if (!boundary) {
+    const error = new Error("feedback must use multipart/form-data") as HttpError;
+    error.status = 415;
+    throw error;
+  }
+
+  const body = await readRequestBuffer(req, FEEDBACK_MAX_BODY_BYTES);
+  const payload = feedbackPayloadFromMultipart(parseMultipartFields(body, boundary));
+  const feedback = await createFeedbackPackage({
+    feedbackDir: FEEDBACK_DIR,
+    user: {
+      id: req.user!.id,
+      username: req.user!.username,
+      role: req.user!.role,
+    },
+    description: payload.description,
+    attachments: payload.attachments || [],
+  });
+
+  res.status(201).json({ feedback });
+}));
+
+app.get("/api/admin/feedbacks", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+  const status = queryFeedbackStatus(req.query.status);
+  const requestedPage = queryPositiveInt(req.query.page, 1);
+  const pageSize = 10;
+  res.json(await listFeedbackPackagePage(FEEDBACK_DIR, status, requestedPage, pageSize));
+}));
+
+app.get("/api/admin/feedbacks/export.csv", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+  const feedbacks = await listFeedbackPackages(FEEDBACK_DIR, "all");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"feedback-export.csv\"");
+  res.send(exportFeedbackCsv(feedbacks));
+}));
+
+app.get("/api/admin/feedbacks/:id/attachments/:fileName", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+  const feedback = await readFeedbackPackage(FEEDBACK_DIR, queryValue(req.params.id));
+  const fileName = queryValue(req.params.fileName);
+  const attachment = feedback.attachments.find((item) => item.fileName === fileName);
+  const attachmentPath = resolveFeedbackAttachmentPath(FEEDBACK_DIR, feedback, fileName);
+  try {
+    await fs.promises.access(attachmentPath, fs.constants.R_OK);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return res.status(404).json({ error: "Feedback attachment not found" });
+    }
+    throw error;
+  }
+  res.type(attachment?.mimeType || "application/octet-stream");
+  res.sendFile(attachmentPath);
+}));
+
+app.post("/api/admin/feedbacks/:id/approve", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+  const reviewer = {
+    id: req.user!.id,
+    username: req.user!.username,
+    role: req.user!.role,
+  };
+  const feedback = await approveFeedbackPackage({
+    feedbackDir: FEEDBACK_DIR,
+    id: queryValue(req.params.id),
+    reviewer,
+    rewardAmount: Number(req.body?.rewardAmount),
+    creditUser: async (userId, amount) => {
+      const result = db.prepare("UPDATE users SET balance = balance + ?, updated_at = ? WHERE id = ?")
+        .run(amount, isoNow(), userId);
+      if (result.changes === 0) {
+        const error = new Error("Feedback user not found") as HttpError;
+        error.status = 404;
+        throw error;
+      }
+    },
+  });
+  res.json({ feedback, users: listAdminUsers() });
+}));
+
+app.post("/api/admin/feedbacks/:id/reject", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+  const feedback = await rejectFeedbackPackage({
+    feedbackDir: FEEDBACK_DIR,
+    id: queryValue(req.params.id),
+    reviewer: {
+      id: req.user!.id,
+      username: req.user!.username,
+      role: req.user!.role,
+    },
+  });
+  res.json({ feedback });
+}));
 
 app.post("/api/admin/provider", requireSession, requireAdmin, (req, res) => {
   try {

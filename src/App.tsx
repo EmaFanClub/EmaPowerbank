@@ -3,25 +3,33 @@ import {
   type FormEvent,
   type MouseEvent,
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
+  CloudUpload,
   Copy,
+  Download,
   Eye,
   EyeOff,
   FileText,
   KeyRound,
   Languages,
   LogOut,
+  MessageSquare,
   Monitor,
   Moon,
   Plus,
   Save,
+  Send,
   Shield,
   Sun,
   Trash2,
@@ -31,6 +39,15 @@ import {
 import { api } from "./api";
 import { messages, type Lang, type Messages } from "./i18n";
 import { getErrorMessage } from "./lib/errors";
+import {
+  createFeedbackAttachmentPreviews,
+  FEEDBACK_IMAGE_ACCEPT,
+  hasFeedbackDragFiles,
+  mergeFeedbackAttachmentSelection,
+  revokeFeedbackAttachmentPreviews,
+} from "./lib/feedbackAttachments";
+import { getFeedbackApprovalDecision } from "./lib/feedbackReview";
+import { navigationItemsForRole, normalizeActivePage, type AppPage } from "./lib/navigation";
 import {
   formatCostWithUsage,
   formatCurrencyInputValue,
@@ -48,6 +65,7 @@ import {
   formatStatCurrency,
   localDateTimeToIso,
   maskKey,
+  normalizeCurrencyDraftInput,
 } from "./lib/format";
 import {
   defaultTestBodyForModel,
@@ -77,6 +95,11 @@ import type {
   Overview,
   PricingItem,
   ProviderInfo,
+  FeedbackSubmitResponse,
+  FeedbackListResponse,
+  FeedbackReviewActionResponse,
+  FeedbackReviewItem,
+  FeedbackReviewStatus,
   ReloadFn,
   RequestLogDetailResponse,
   RequestLogDetailState,
@@ -90,6 +113,7 @@ import type {
   User,
 } from "./types";
 
+const FEEDBACK_REWARD_TIERS = [1, 3, 5, 10];
 
 function Stat({ label, value, tone = "blue" }: { label: string; value: string | number; tone?: string }) {
   return (
@@ -741,6 +765,223 @@ function ApiTestPanel({
   );
 }
 
+function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
+  const [description, setDescription] = useState("");
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachmentPreviews, setAttachmentPreviews] = useState(() => createFeedbackAttachmentPreviews([]));
+  const [dragOverlayVisible, setDragOverlayVisible] = useState(false);
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const dragDepthRef = useRef(0);
+
+  const applyAttachmentSelection = useCallback((files: File[]) => {
+    setError("");
+    setSubmitted(false);
+
+    const result = mergeFeedbackAttachmentSelection(attachments, files);
+    if (!result.ok) {
+      setFileInputKey((current) => current + 1);
+      if (result.reason === "tooMany") setError(t.feedbackAttachmentsTooMany);
+      if (result.reason === "invalidType") setError(t.feedbackImageInvalid);
+      if (result.reason === "tooLarge") setError(t.feedbackImageTooLarge);
+      return;
+    }
+
+    setAttachments(result.attachments);
+    setFileInputKey((current) => current + 1);
+  }, [attachments, t.feedbackAttachmentsTooMany, t.feedbackImageInvalid, t.feedbackImageTooLarge]);
+
+  useEffect(() => {
+    const previews = createFeedbackAttachmentPreviews(attachments);
+    setAttachmentPreviews(previews);
+    return () => revokeFeedbackAttachmentPreviews(previews);
+  }, [attachments]);
+
+  useEffect(() => {
+    function resetDragOverlay() {
+      dragDepthRef.current = 0;
+      setDragOverlayVisible(false);
+    }
+
+    function handleDragEnter(event: DragEvent) {
+      if (!hasFeedbackDragFiles(event.dataTransfer?.types)) return;
+      event.preventDefault();
+      dragDepthRef.current += 1;
+      setDragOverlayVisible(true);
+    }
+
+    function handleDragOver(event: DragEvent) {
+      if (!hasFeedbackDragFiles(event.dataTransfer?.types)) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+      setDragOverlayVisible(true);
+    }
+
+    function handleDragLeave(event: DragEvent) {
+      if (!hasFeedbackDragFiles(event.dataTransfer?.types)) return;
+      event.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setDragOverlayVisible(false);
+    }
+
+    function handleDrop(event: DragEvent) {
+      if (!hasFeedbackDragFiles(event.dataTransfer?.types)) return;
+      event.preventDefault();
+      const files = Array.from(event.dataTransfer?.files || []);
+      resetDragOverlay();
+      applyAttachmentSelection(files);
+    }
+
+    window.addEventListener("dragenter", handleDragEnter);
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("dragleave", handleDragLeave);
+    window.addEventListener("drop", handleDrop);
+    return () => {
+      window.removeEventListener("dragenter", handleDragEnter);
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("dragleave", handleDragLeave);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, [applyAttachmentSelection]);
+
+  function selectAttachments(event: ChangeEvent<HTMLInputElement>) {
+    applyAttachmentSelection(Array.from(event.target.files || []));
+  }
+
+  function removeAttachment(fileToRemove: File) {
+    setAttachments((current) => current.filter((file) => file !== fileToRemove));
+    setFileInputKey((current) => current + 1);
+    setError("");
+    setSubmitted(false);
+  }
+
+  async function submitFeedback(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedDescription = description.trim();
+    setError("");
+    setSubmitted(false);
+
+    if (!trimmedDescription) {
+      setError(t.feedbackDescriptionRequired);
+      return;
+    }
+
+    if (!window.confirm(t.confirmSubmitFeedback)) return;
+
+    const formData = new FormData();
+    formData.append("description", trimmedDescription);
+    for (const attachment of attachments) formData.append("attachment", attachment);
+
+    setBusy(true);
+    try {
+      await api<FeedbackSubmitResponse>("/api/feedback", {
+        method: "POST",
+        body: formData,
+      });
+      setDescription("");
+      setAttachments([]);
+      setFileInputKey((current) => current + 1);
+      setSubmitted(true);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="page-grid">
+      <section className="panel wide feedback-panel">
+        <div className="section-head">
+          <div>
+            <span className="eyebrow">{t.feedback}</span>
+            <h2>{t.feedback}</h2>
+          </div>
+        </div>
+        <div className="inline-info feedback-reward-notice">{t.feedbackRewardNotice}</div>
+        <form className="feedback-form" onSubmit={submitFeedback}>
+          <label>
+            {t.feedbackDescription}
+            <textarea
+              maxLength={5000}
+              required
+              value={description}
+              placeholder={t.feedbackDescriptionPlaceholder}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                setError("");
+                setSubmitted(false);
+              }}
+            />
+          </label>
+          <div className="feedback-field">
+            <span className="feedback-field-label">{t.feedbackAttachment}</span>
+            <span className="feedback-upload-control">
+              <label className="feedback-upload-button">
+                {t.feedbackChooseFiles}
+                <input
+                  accept={FEEDBACK_IMAGE_ACCEPT}
+                  className="feedback-upload-input"
+                  key={fileInputKey}
+                  multiple
+                  onChange={selectAttachments}
+                  type="file"
+                />
+              </label>
+              <span className="feedback-upload-hint">{t.feedbackDragPrompt}</span>
+            </span>
+          </div>
+          <div className="feedback-meta-row">
+            <span>{formatNumber(description.length, lang)} / {formatNumber(5000, lang)}</span>
+          </div>
+          {attachmentPreviews.length > 0 && (
+            <div className="feedback-local-preview" aria-label={t.feedbackPreview}>
+              {attachmentPreviews.map((preview) => (
+                <figure className="feedback-local-preview-item" key={preview.key}>
+                  <img alt={preview.file.name} src={preview.url} />
+                  <figcaption>
+                    <span>{preview.file.name}</span>
+                    <button
+                      aria-label={`${t.feedbackRemoveAttachment}: ${preview.file.name}`}
+                      className="feedback-file-remove"
+                      onClick={() => removeAttachment(preview.file)}
+                      title={t.feedbackRemoveAttachment}
+                      type="button"
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          )}
+          {error && <div className="inline-error">{error}</div>}
+          <button className="primary-btn" disabled={!description.trim() || busy} type="submit">
+            <Send size={18} aria-hidden="true" />
+            {busy ? t.processing : t.feedbackSubmit}
+          </button>
+          {submitted && (
+            <div className="inline-success" aria-live="polite">
+              <strong>{t.feedbackSubmitted}</strong>
+            </div>
+          )}
+        </form>
+      </section>
+      {dragOverlayVisible && (
+        <div className="feedback-drop-overlay" aria-hidden="true">
+          <div className="feedback-drop-target">
+            <CloudUpload size={42} aria-hidden="true" />
+            <strong>{t.feedbackDropTitle}</strong>
+            <span>{t.feedbackDropHint}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({
   overview,
   reload,
@@ -1328,15 +1569,21 @@ function UsersPanel({
                 <td>{formatPreciseCurrency(item.totalSpent || 0, lang)}</td>
                 <td className="balance-cell">
                   <div className="balance-edit">
-                    <input
-                      className="cell-input"
-                      aria-label={`${item.username} ${t.balance}`}
-                      type="number"
-                      step="0.0001"
-                      value={balances[item.id] ?? 0}
-                      onChange={(event) => setBalances((current) => ({ ...current, [item.id]: event.target.value }))}
-                      onBlur={() => normalizeBalanceEdit(item.id)}
-                    />
+                    <div className="currency-input-wrap">
+                      <span className="currency-prefix" aria-hidden="true">$</span>
+                      <input
+                        className="cell-input currency-input"
+                        aria-label={`${item.username} ${t.balance}`}
+                        type="number"
+                        step="0.1"
+                        value={balances[item.id] ?? 0}
+                        onChange={(event) => setBalances((current) => ({
+                          ...current,
+                          [item.id]: normalizeCurrencyDraftInput(event.target.value),
+                        }))}
+                        onBlur={() => normalizeBalanceEdit(item.id)}
+                      />
+                    </div>
                     <button className="icon-btn primary" title={t.saveBalance} onClick={() => save(item.id)} type="button">
                       <Save size={16} aria-hidden="true" />
                     </button>
@@ -1351,6 +1598,275 @@ function UsersPanel({
             ))}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+function feedbackStatusLabel(status: FeedbackReviewStatus, t: Messages) {
+  if (status === "approved") return t.feedbackStatusApproved;
+  if (status === "rejected") return t.feedbackStatusRejected;
+  return t.feedbackStatusPending;
+}
+
+function NavigationIcon({ page }: { page: AppPage }) {
+  if (page === "admin") return <Shield size={18} aria-hidden="true" />;
+  if (page === "requestLogs") return <FileText size={18} aria-hidden="true" />;
+  if (page === "feedback") return <MessageSquare size={18} aria-hidden="true" />;
+  if (page === "feedbackReview") return <ClipboardCheck size={18} aria-hidden="true" />;
+  return <UserRound size={18} aria-hidden="true" />;
+}
+
+function FeedbackReviewPanel({
+  reload,
+  t,
+  lang,
+}: {
+  reload: ReloadFn;
+  t: Messages;
+  lang: Lang;
+}) {
+  const [status, setStatus] = useState<FeedbackReviewStatus>("pending");
+  const [feedbacks, setFeedbacks] = useState<FeedbackReviewItem[]>([]);
+  const [rewardDrafts, setRewardDrafts] = useState<Record<string, string>>({});
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    params.set("status", status);
+    params.set("page", String(page));
+
+    setLoading(true);
+    setError("");
+    api<FeedbackListResponse>(`/api/admin/feedbacks?${params.toString()}`)
+      .then((data) => {
+        if (cancelled) return;
+        const rows = data.feedbacks || [];
+        setFeedbacks(rows);
+        setPage(data.page || 1);
+        setPageSize(data.pageSize || 10);
+        setTotal(data.total || 0);
+        setTotalPages(data.totalPages || 1);
+        setRewardDrafts((current) => ({
+          ...Object.fromEntries(rows.filter((item) => item.review.status === "pending").map((item) => [item.id, current[item.id] || "5"])),
+        }));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(getErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [status, refreshToken, page]);
+
+  function changeStatus(value: FeedbackReviewStatus) {
+    setStatus(value);
+    setPage(1);
+  }
+
+  function setBusy(id: string, busy: boolean) {
+    setBusyIds((current) => {
+      const next = new Set(current);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function updateReward(id: string, value: string) {
+    setRewardDrafts((current) => ({ ...current, [id]: normalizeCurrencyDraftInput(value) }));
+    setError("");
+  }
+
+  async function approve(item: FeedbackReviewItem) {
+    setError("");
+    const decision = getFeedbackApprovalDecision(
+      rewardDrafts[item.id],
+      () => window.confirm(t.confirmApproveFeedback),
+    );
+    if (!decision.ok) {
+      if (decision.reason === "cancelled") return;
+      setError(t.feedbackRewardRequired);
+      return;
+    }
+    setBusy(item.id, true);
+    try {
+      await api<FeedbackReviewActionResponse>(`/api/admin/feedbacks/${item.id}/approve`, {
+        method: "POST",
+        body: { rewardAmount: decision.rewardAmount },
+      });
+      await reload();
+      setRefreshToken((current) => current + 1);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setBusy(item.id, false);
+    }
+  }
+
+  async function reject(item: FeedbackReviewItem) {
+    setError("");
+    if (!window.confirm(t.confirmRejectFeedback)) return;
+    setBusy(item.id, true);
+    try {
+      await api<FeedbackReviewActionResponse>(`/api/admin/feedbacks/${item.id}/reject`, { method: "POST" });
+      setRefreshToken((current) => current + 1);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setBusy(item.id, false);
+    }
+  }
+
+  const paginationText = lang === "zh"
+    ? `第 ${formatNumber(page, lang)} / ${formatNumber(totalPages, lang)} 页 · 共 ${formatNumber(total, lang)} 条 · 每页 ${formatNumber(pageSize, lang)} 条`
+    : `Page ${formatNumber(page, lang)} / ${formatNumber(totalPages, lang)} · ${formatNumber(total, lang)} total · ${formatNumber(pageSize, lang)} per page`;
+
+  return (
+    <section className="panel wide feedback-review-panel">
+      <div className="section-head">
+        <div>
+          <span className="eyebrow">{t.feedback}</span>
+          <h2>{t.feedbackReview}</h2>
+        </div>
+        <a className="primary-btn compact-action" href="/api/admin/feedbacks/export.csv" download="feedback-export.csv">
+          <Download size={17} aria-hidden="true" />
+          {t.feedbackExportCsv}
+        </a>
+      </div>
+      <div className="feedback-review-filters segmented compact" role="tablist" aria-label={t.feedbackReviewStatus}>
+        {(["pending", "approved", "rejected"] as FeedbackReviewStatus[]).map((item) => (
+          <button
+            className={status === item ? "active" : ""}
+            key={item}
+            onClick={() => changeStatus(item)}
+            type="button"
+          >
+            {feedbackStatusLabel(item, t)}
+          </button>
+        ))}
+      </div>
+      {error && <div className="inline-error">{error}</div>}
+      <div className="feedback-review-list" aria-busy={loading}>
+        {loading && feedbacks.length === 0 ? (
+          <div className="request-log-empty">{t.processing}</div>
+        ) : feedbacks.length === 0 ? (
+          <div className="request-log-empty">{t.noData}</div>
+        ) : feedbacks.map((item) => {
+          const isBusy = busyIds.has(item.id);
+          const reviewed = item.review.status !== "pending";
+          return (
+            <article className={`feedback-review-card${item.attachments.length === 0 ? " feedback-review-card-no-attachments" : ""}`} key={item.id}>
+              <div className="feedback-review-main">
+                <div className="feedback-review-head">
+                  <div>
+                    <strong>{item.user.username}</strong>
+                  </div>
+                  <span className={`feedback-status feedback-status-${item.review.status}`}>
+                    {feedbackStatusLabel(item.review.status, t)}
+                  </span>
+                </div>
+                <label className="feedback-review-description">
+                  <span>{t.feedbackDescription}</span>
+                  <textarea readOnly value={item.description} />
+                </label>
+                <div className="feedback-review-description-meta">
+                  <span><strong>{t.feedbackReviewSubmittedAt}</strong>{formatDateTimeSeconds(item.timestamp, lang)}</span>
+                  <span><strong>{t.feedbackPackageName}</strong><code>{item.packageName}</code></span>
+                </div>
+                <div className="feedback-review-meta">
+                  {item.attachments.length > 0 ? (
+                    <span><strong>{t.feedbackAttachment}</strong><code>{item.attachments.map((attachment) => attachment.originalName).join(", ")}</code></span>
+                  ) : (
+                    <span><strong>{t.feedbackAttachment}</strong>{t.noData}</span>
+                  )}
+                  {reviewed && (
+                    <span><strong>{t.feedbackReward}</strong>{formatNumber(item.review.rewardAmount, lang)}</span>
+                  )}
+                  {item.review.reviewedBy && (
+                    <span><strong>{t.admin}</strong>{item.review.reviewedBy.username}</span>
+                  )}
+                  {item.review.reviewedAt && (
+                    <span><strong>{t.feedbackReviewedAt}</strong>{formatDateTimeSeconds(item.review.reviewedAt, lang)}</span>
+                  )}
+                </div>
+                {item.review.status === "pending" && (
+                  <div className="feedback-review-actions">
+                    <div className="reward-controls">
+                      <span>{t.feedbackReviewTiers}</span>
+                      <div className="reward-tier-list">
+                        {FEEDBACK_REWARD_TIERS.map((tier) => (
+                          <button
+                            className={Number(rewardDrafts[item.id] || 0) === tier ? "active" : ""}
+                            key={tier}
+                            onClick={() => updateReward(item.id, String(tier))}
+                            type="button"
+                          >
+                            ${formatCurrencyInputValue(tier, 2)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label className="reward-manual">
+                      {t.feedbackRewardManual}
+                      <div className="currency-input-wrap">
+                        <span className="currency-prefix" aria-hidden="true">$</span>
+                        <input
+                          className="currency-input"
+                          min="0"
+                          step="0.1"
+                          type="number"
+                          value={rewardDrafts[item.id] ?? "5"}
+                          onChange={(event) => updateReward(item.id, event.target.value)}
+                        />
+                      </div>
+                    </label>
+                    <button className="primary-btn compact-action" disabled={isBusy} onClick={() => approve(item)} type="button">
+                      <Check size={17} aria-hidden="true" />
+                      {t.feedbackReviewApprove}
+                    </button>
+                    <button className="primary-btn danger-action compact-action" disabled={isBusy} onClick={() => reject(item)} type="button">
+                      <X size={17} aria-hidden="true" />
+                      {t.feedbackReviewReject}
+                    </button>
+                  </div>
+                )}
+              </div>
+              {item.attachments.length > 0 && (
+                <div className="feedback-preview">
+                  {item.attachments.map((attachment) => (
+                    <img
+                      alt={attachment.originalName}
+                      key={attachment.fileName}
+                      src={`/api/admin/feedbacks/${item.id}/attachments/${encodeURIComponent(attachment.fileName)}`}
+                    />
+                  ))}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <div className="request-log-pagination">
+        <button className="icon-btn" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} title="Previous page" type="button">
+          <ChevronLeft size={17} aria-hidden="true" />
+        </button>
+        <span>{paginationText}</span>
+        <button className="icon-btn" disabled={loading || page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))} title="Next page" type="button">
+          <ChevronRight size={17} aria-hidden="true" />
+        </button>
       </div>
     </section>
   );
@@ -1734,7 +2250,7 @@ function AdminPanel({
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState<"dashboard" | "admin" | "requestLogs">("dashboard");
+  const [active, setActive] = useState<AppPage>("dashboard");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [error, setError] = useState("");
@@ -1749,6 +2265,10 @@ export default function App() {
     ? t.adminConsole
     : active === "requestLogs"
       ? t.requestLogs
+      : active === "feedback"
+        ? t.feedback
+        : active === "feedbackReview"
+          ? t.feedbackReview
       : t.userDashboard;
 
   function setLang(value: Lang) {
@@ -1807,7 +2327,8 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     setError("");
-    if (user.role !== "admin" && active === "admin") setActive("dashboard");
+    const normalizedActive = normalizeActivePage(user.role, active);
+    if (normalizedActive !== active) setActive(normalizedActive);
     loadDashboard().catch((err) => setError(getErrorMessage(err)));
     if (user.role === "admin") loadAdmin().catch((err) => setError(getErrorMessage(err)));
   }, [user]);
@@ -1834,6 +2355,14 @@ export default function App() {
     );
   }
 
+  const navigationLabels: Record<AppPage, string> = {
+    dashboard: t.dashboard,
+    admin: t.admin,
+    requestLogs: t.requestLogs,
+    feedback: t.feedback,
+    feedbackReview: t.feedbackReview,
+  };
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -1841,20 +2370,12 @@ export default function App() {
           <span>Ema Powerbank</span>
         </div>
         <nav>
-          <button className={active === "dashboard" ? "active" : ""} onClick={() => setActive("dashboard")} type="button">
-            <UserRound size={18} aria-hidden="true" />
-            {t.dashboard}
-          </button>
-          {user.role === "admin" && (
-            <button className={active === "admin" ? "active" : ""} onClick={() => setActive("admin")} type="button">
-              <Shield size={18} aria-hidden="true" />
-              {t.admin}
+          {navigationItemsForRole(user.role).map((item) => (
+            <button className={active === item.id ? "active" : ""} key={item.id} onClick={() => setActive(item.id)} type="button">
+              <NavigationIcon page={item.id} />
+              {navigationLabels[item.id]}
             </button>
-          )}
-          <button className={active === "requestLogs" ? "active" : ""} onClick={() => setActive("requestLogs")} type="button">
-            <FileText size={18} aria-hidden="true" />
-            {t.requestLogs}
-          </button>
+          ))}
         </nav>
       </aside>
       <section className="content">
@@ -1887,6 +2408,10 @@ export default function App() {
                   />
                 </div>
               )
+            : active === "feedback"
+              ? <FeedbackPanel t={t} lang={lang} />
+              : active === "feedbackReview" && user.role === "admin"
+                ? <div className="page-grid"><FeedbackReviewPanel reload={loadAdmin} t={t} lang={lang} /></div>
             : overview && <Dashboard overview={overview} reload={loadDashboard} t={t} lang={lang} />}
       </section>
     </main>

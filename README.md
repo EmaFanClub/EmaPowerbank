@@ -136,6 +136,7 @@ After logging in, users can:
 - Copy the Base URL
 - See available model IDs and prices
 - Send test requests from the built-in API test panel
+- Submit issue feedback with a required issue description and up to 10 optional image attachments; accepted feedback can earn a reward amount
 - View daily cost statistics
 
 Base URL:
@@ -211,6 +212,7 @@ Runtime creates:
 ```text
 data/relay.sqlite
 request-logs/
+feedback/
 ```
 
 `data/relay.sqlite` stores:
@@ -229,6 +231,8 @@ request-logs/
 - Response status and body
 - Extracted usage and cost
 - Total request duration and timing breakdown
+
+`feedback/` stores one directory per submitted feedback package. Each package directory is named `feedback-<id>-<timestamp>/` and contains `feedback.json` plus up to 10 optional uploaded image attachments at 5 MB each. The JSON file includes the feedback id, timestamp, submitting user, issue description, attachment metadata array, review status, and reward metadata. Admins can filter feedback by pending, approved, or rejected status; each status list is paginated at 10 items per page. Admins can export all feedback as CSV with `user-name`, `user-id`, `description`, `attachments-filenames`, and `review-status` fields. Admins can review feedback, view the issue description in a labeled read-only text box, see the submitted time and package name below the description, preview image attachments horizontally, approve with a non-zero reward amount, or reject without granting balance.
 
 ## Logs Page
 
@@ -262,8 +266,10 @@ Recommended production checklist:
 - Set a strong `JWT_SECRET`
 - Change the default admin password
 - Restrict permissions for `data/` and `request-logs/`
+- Restrict permissions for `feedback/`
 - Back up `data/relay.sqlite`
 - Clean up or archive `request-logs/` as needed
+- Clean up or archive `feedback/` as needed
 - If running behind a reverse proxy, configure request body size and timeout limits for model responses
 
 ## Verification
