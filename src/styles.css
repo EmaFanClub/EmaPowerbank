@@ -1093,10 +1093,17 @@ select:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.feedback-description-help {
+  min-width: min(520px, 100%);
+  max-width: 760px;
+  line-height: 1.45;
 }
 
 .feedback-file-remove {

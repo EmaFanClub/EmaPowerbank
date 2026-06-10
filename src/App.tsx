@@ -771,14 +771,14 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
   const [attachmentPreviews, setAttachmentPreviews] = useState(() => createFeedbackAttachmentPreviews([]));
   const [dragOverlayVisible, setDragOverlayVisible] = useState(false);
   const [error, setError] = useState("");
-  const [savedPackage, setSavedPackage] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
   const dragDepthRef = useRef(0);
 
   const applyAttachmentSelection = useCallback((files: File[]) => {
     setError("");
-    setSavedPackage("");
+    setSubmitted(false);
 
     const result = mergeFeedbackAttachmentSelection(attachments, files);
     if (!result.ok) {
@@ -854,19 +854,21 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
     setAttachments((current) => current.filter((file) => file !== fileToRemove));
     setFileInputKey((current) => current + 1);
     setError("");
-    setSavedPackage("");
+    setSubmitted(false);
   }
 
   async function submitFeedback(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedDescription = description.trim();
     setError("");
-    setSavedPackage("");
+    setSubmitted(false);
 
     if (!trimmedDescription) {
       setError(t.feedbackDescriptionRequired);
       return;
     }
+
+    if (!window.confirm(t.confirmSubmitFeedback)) return;
 
     const formData = new FormData();
     formData.append("description", trimmedDescription);
@@ -874,14 +876,14 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
 
     setBusy(true);
     try {
-      const data = await api<FeedbackSubmitResponse>("/api/feedback", {
+      await api<FeedbackSubmitResponse>("/api/feedback", {
         method: "POST",
         body: formData,
       });
       setDescription("");
       setAttachments([]);
       setFileInputKey((current) => current + 1);
-      setSavedPackage(data.feedback.packageName);
+      setSubmitted(true);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -906,10 +908,11 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
               maxLength={5000}
               required
               value={description}
+              placeholder={t.feedbackDescriptionPlaceholder}
               onChange={(event) => {
                 setDescription(event.target.value);
                 setError("");
-                setSavedPackage("");
+                setSubmitted(false);
               }}
             />
           </label>
@@ -931,6 +934,7 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
             </span>
           </div>
           <div className="feedback-meta-row">
+            <span className="feedback-description-help">{t.feedbackDescriptionHelp}</span>
             <span>{formatNumber(description.length, lang)} / {formatNumber(5000, lang)}</span>
           </div>
           {attachmentPreviews.length > 0 && (
@@ -955,10 +959,9 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
             </div>
           )}
           {error && <div className="inline-error">{error}</div>}
-          {savedPackage && (
+          {submitted && (
             <div className="inline-success" aria-live="polite">
               <strong>{t.feedbackSubmitted}</strong>
-              <span>{t.feedbackPackageName}: <code>{savedPackage}</code></span>
             </div>
           )}
           <button className="primary-btn" disabled={!description.trim() || busy} type="submit">
