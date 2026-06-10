@@ -3,8 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import type { IncomingMessage } from "node:http";
 
-export const FEEDBACK_MAX_BODY_BYTES = 10 * 1024 * 1024;
-export const FEEDBACK_MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+export const FEEDBACK_MAX_BODY_BYTES = 55 * 1024 * 1024;
+export const FEEDBACK_MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+export const FEEDBACK_MAX_ATTACHMENTS = 10;
 export const FEEDBACK_MAX_DESCRIPTION_LENGTH = 5000;
 
 const imageExtensionsByMimeType: Record<string, string> = {
@@ -44,7 +45,7 @@ export interface FeedbackAttachmentInput {
 
 export interface FeedbackPayload {
   description: string;
-  attachment?: FeedbackAttachmentInput;
+  attachments?: FeedbackAttachmentInput[];
 }
 
 export interface FeedbackAttachmentMetadata {
@@ -70,7 +71,7 @@ export interface FeedbackMetadata {
   packageName: string;
   user: FeedbackUser;
   description: string;
-  attachment: FeedbackAttachmentMetadata | null;
+  attachments: FeedbackAttachmentMetadata[];
   review: FeedbackReview;
 }
 
@@ -93,7 +94,7 @@ export interface FeedbackPackageResult {
   id: string;
   timestamp: string;
   packageName: string;
-  attachment?: FeedbackAttachmentMetadata;
+  attachments: FeedbackAttachmentMetadata[];
   review: FeedbackReview;
 }
 
@@ -160,6 +161,16 @@ function normalizeAttachment(value: unknown): FeedbackAttachmentMetadata | null 
   return { fileName, originalName, mimeType, size };
 }
 
+function normalizeAttachments(value: unknown): FeedbackAttachmentMetadata[] {
+  if (!Array.isArray(value)) throw new FeedbackError("invalid feedback attachments");
+  if (value.length > FEEDBACK_MAX_ATTACHMENTS) throw new FeedbackError("too many feedback attachments");
+  return value.map((item) => {
+    const attachment = normalizeAttachment(item);
+    if (!attachment) throw new FeedbackError("invalid feedback attachment");
+    return attachment;
+  });
+}
+
 function normalizeReview(value: unknown): FeedbackReview {
   if (!isRecord(value)) return defaultReview();
   const status: FeedbackReviewStatus = value.status === "approved" || value.status === "rejected"
@@ -219,7 +230,7 @@ export function normalizeFeedbackMetadata(value: unknown, fallbackPackageName = 
     packageName,
     user: normalizeUser(value.user),
     description,
-    attachment: normalizeAttachment(value.attachment),
+    attachments: normalizeAttachments(value.attachments),
     review: normalizeReview(value.review),
   };
 }
@@ -340,18 +351,24 @@ export function parseMultipartFields(body: Buffer, boundary: string): MultipartP
 
 export function feedbackPayloadFromMultipart(parts: MultipartPart[]): FeedbackPayload {
   const descriptionPart = parts.find((part) => part.name === "description");
-  const attachmentPart = parts.find((part) => part.name === "attachment" && part.filename && part.content.length > 0);
+  const attachmentParts = parts.filter((part) => part.name === "attachment" && part.filename && part.content.length > 0);
+  if (attachmentParts.length > FEEDBACK_MAX_ATTACHMENTS) {
+    throw new FeedbackError(`feedback can include at most ${FEEDBACK_MAX_ATTACHMENTS} attachments`);
+  }
   const payload: FeedbackPayload = {
     description: validateFeedbackDescription(descriptionPart?.content.toString("utf8") || ""),
   };
 
-  if (attachmentPart?.filename) {
-    payload.attachment = {
-      originalName: attachmentPart.filename,
-      mimeType: attachmentPart.contentType || mimeFromExtension(attachmentPart.filename),
-      content: attachmentPart.content,
-    };
-    validateFeedbackImage(payload.attachment);
+  if (attachmentParts.length > 0) {
+    payload.attachments = attachmentParts.map((attachmentPart) => {
+      const attachment = {
+        originalName: attachmentPart.filename!,
+        mimeType: attachmentPart.contentType || mimeFromExtension(attachmentPart.filename!),
+        content: attachmentPart.content,
+      };
+      validateFeedbackImage(attachment);
+      return attachment;
+    });
   }
 
   return payload;
@@ -445,12 +462,12 @@ export function exportFeedbackCsv(feedbacks: FeedbackMetadata[]) {
     csvCell(feedback.user.username),
     csvCell(String(feedback.user.id)),
     csvCell(feedback.description),
-    csvCell(feedback.attachment?.fileName || ""),
+    csvCell(feedback.attachments.map((attachment) => attachment.fileName).join(";")),
     csvCell(feedback.review.status),
   ].join(","));
 
   return [
-    "user-name,user-id,description,attachment-filename,review-status",
+    "user-name,user-id,description,attachments-filenames,review-status",
     ...rows,
     "",
   ].join("\n");
@@ -464,10 +481,11 @@ export async function readFeedbackPackage(feedbackDir: string, id: string) {
   return feedback;
 }
 
-export function resolveFeedbackAttachmentPath(feedbackDir: string, feedback: FeedbackMetadata) {
-  if (!feedback.attachment?.fileName) throw new FeedbackError("Feedback attachment not found", 404);
+export function resolveFeedbackAttachmentPath(feedbackDir: string, feedback: FeedbackMetadata, fileName: string) {
+  const attachment = feedback.attachments.find((item) => item.fileName === fileName);
+  if (!attachment) throw new FeedbackError("Feedback attachment not found", 404);
   const packageDir = resolvePackageDir(feedbackDir, feedback.packageName);
-  const filePath = path.resolve(packageDir, feedback.attachment.fileName);
+  const filePath = path.resolve(packageDir, attachment.fileName);
   if (filePath !== packageDir && filePath.startsWith(`${packageDir}${path.sep}`)) return filePath;
   throw new FeedbackError("Feedback attachment path is outside feedback directory");
 }
@@ -548,14 +566,14 @@ export async function createFeedbackPackage({
   feedbackDir,
   user,
   description,
-  attachment,
+  attachments = [],
   id = `fb_${randomUUID()}`,
   timestamp = new Date().toISOString(),
 }: {
   feedbackDir: string;
   user: FeedbackUser;
   description: string;
-  attachment?: FeedbackAttachmentInput;
+  attachments?: FeedbackAttachmentInput[];
   id?: string;
   timestamp?: string;
 }): Promise<FeedbackPackageResult> {
@@ -570,17 +588,21 @@ export async function createFeedbackPackage({
 
   await fs.promises.mkdir(packageDir, { recursive: false });
 
-  let attachmentMetadata: FeedbackPackageResult["attachment"];
-  if (attachment) {
+  if (attachments.length > FEEDBACK_MAX_ATTACHMENTS) {
+    throw new FeedbackError(`feedback can include at most ${FEEDBACK_MAX_ATTACHMENTS} attachments`);
+  }
+
+  const attachmentMetadata: FeedbackAttachmentMetadata[] = [];
+  for (const [index, attachment] of attachments.entries()) {
     const image = validateFeedbackImage(attachment);
-    const fileName = `${packageName}${image.extension}`;
+    const fileName = `${packageName}-${String(index + 1).padStart(2, "0")}${image.extension}`;
     await fs.promises.writeFile(path.join(packageDir, fileName), attachment.content, { flag: "wx" });
-    attachmentMetadata = {
+    attachmentMetadata.push({
       fileName,
       originalName: image.originalName,
       mimeType: image.mimeType,
       size: image.size,
-    };
+    });
   }
 
   const metadata = {
@@ -589,7 +611,7 @@ export async function createFeedbackPackage({
     packageName,
     user,
     description: normalizedDescription,
-    attachment: attachmentMetadata || null,
+    attachments: attachmentMetadata,
     review: defaultReview(),
   };
   await fs.promises.writeFile(
@@ -602,7 +624,7 @@ export async function createFeedbackPackage({
     id,
     timestamp,
     packageName,
-    attachment: attachmentMetadata,
+    attachments: attachmentMetadata,
     review: metadata.review,
   };
 }

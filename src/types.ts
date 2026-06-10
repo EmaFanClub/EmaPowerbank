@@ -172,12 +172,12 @@ export interface FeedbackSubmitResponse {
     id: string;
     timestamp: string;
     packageName: string;
-    attachment?: {
+    attachments: {
       fileName: string;
       originalName: string;
       mimeType: string;
       size: number;
-    };
+    }[];
     review?: FeedbackReview;
   };
 }
@@ -203,12 +203,12 @@ export interface FeedbackReviewItem {
   packageName: string;
   user: FeedbackUserSummary;
   description: string;
-  attachment: {
+  attachments: {
     fileName: string;
     originalName: string;
     mimeType: string;
     size: number;
-  } | null;
+  }[];
   review: FeedbackReview;
 }
 

@@ -1038,6 +1038,18 @@ select:hover {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 4px 5px 4px 8px;
+  background: var(--surface);
+}
+
+.feedback-file-list {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 10px;
 }
 
 .feedback-file-meta strong {
@@ -1047,6 +1059,24 @@ select:hover {
   color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.feedback-file-remove {
+  border: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.feedback-file-remove:hover {
+  background: var(--surface-muted);
+  color: #b42318;
 }
 
 .inline-success {
@@ -1245,12 +1275,17 @@ select:hover {
 
 .feedback-preview {
   min-width: 0;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
   align-self: start;
+  padding-bottom: 4px;
 }
 
 .feedback-preview img {
   display: block;
-  width: 100%;
+  width: 190px;
+  flex: 0 0 190px;
   max-height: 220px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -2009,6 +2044,8 @@ th.right .table-sort {
   }
 
   .feedback-preview img {
+    width: 220px;
+    flex-basis: 220px;
     max-height: 320px;
   }
 

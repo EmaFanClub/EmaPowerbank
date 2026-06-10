@@ -36,6 +36,10 @@ import {
 import { api } from "./api";
 import { messages, type Lang, type Messages } from "./i18n";
 import { getErrorMessage } from "./lib/errors";
+import {
+  FEEDBACK_IMAGE_ACCEPT,
+  mergeFeedbackAttachmentSelection,
+} from "./lib/feedbackAttachments";
 import { getFeedbackApprovalDecision } from "./lib/feedbackReview";
 import { navigationItemsForRole, normalizeActivePage, type AppPage } from "./lib/navigation";
 import {
@@ -103,10 +107,6 @@ import type {
   User,
 } from "./types";
 
-const FEEDBACK_ATTACHMENT_MAX_BYTES = 8 * 1024 * 1024;
-const FEEDBACK_IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,image/bmp,image/avif,image/heic,image/heif";
-const FEEDBACK_IMAGE_NAME_PATTERN = /\.(png|jpe?g|gif|webp|bmp|avif|hei[cf])$/i;
-const FEEDBACK_IMAGE_TYPES = new Set(FEEDBACK_IMAGE_ACCEPT.split(","));
 const FEEDBACK_REWARD_TIERS = [1, 3, 5, 10];
 
 function Stat({ label, value, tone = "blue" }: { label: string; value: string | number; tone?: string }) {
@@ -759,41 +759,37 @@ function ApiTestPanel({
   );
 }
 
-function isAcceptedFeedbackImage(file: File) {
-  return FEEDBACK_IMAGE_TYPES.has(file.type) || (!file.type && FEEDBACK_IMAGE_NAME_PATTERN.test(file.name));
-}
-
 function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
   const [description, setDescription] = useState("");
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [savedPackage, setSavedPackage] = useState("");
   const [busy, setBusy] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
 
-  function selectAttachment(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] || null;
+  function selectAttachments(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files || []);
     setError("");
     setSavedPackage("");
 
-    if (!file) {
-      setAttachment(null);
-      return;
-    }
-    if (!isAcceptedFeedbackImage(file)) {
-      setAttachment(null);
+    const result = mergeFeedbackAttachmentSelection(attachments, files);
+    if (!result.ok) {
       setFileInputKey((current) => current + 1);
-      setError(t.feedbackImageInvalid);
-      return;
-    }
-    if (file.size > FEEDBACK_ATTACHMENT_MAX_BYTES) {
-      setAttachment(null);
-      setFileInputKey((current) => current + 1);
-      setError(t.feedbackImageTooLarge);
+      if (result.reason === "tooMany") setError(t.feedbackAttachmentsTooMany);
+      if (result.reason === "invalidType") setError(t.feedbackImageInvalid);
+      if (result.reason === "tooLarge") setError(t.feedbackImageTooLarge);
       return;
     }
 
-    setAttachment(file);
+    setAttachments(result.attachments);
+    setFileInputKey((current) => current + 1);
+  }
+
+  function removeAttachment(fileToRemove: File) {
+    setAttachments((current) => current.filter((file) => file !== fileToRemove));
+    setFileInputKey((current) => current + 1);
+    setError("");
+    setSavedPackage("");
   }
 
   async function submitFeedback(event: FormEvent<HTMLFormElement>) {
@@ -809,7 +805,7 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
 
     const formData = new FormData();
     formData.append("description", trimmedDescription);
-    if (attachment) formData.append("attachment", attachment);
+    for (const attachment of attachments) formData.append("attachment", attachment);
 
     setBusy(true);
     try {
@@ -818,7 +814,7 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
         body: formData,
       });
       setDescription("");
-      setAttachment(null);
+      setAttachments([]);
       setFileInputKey((current) => current + 1);
       setSavedPackage(data.feedback.packageName);
     } catch (err) {
@@ -857,17 +853,31 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
             <input
               accept={FEEDBACK_IMAGE_ACCEPT}
               key={fileInputKey}
-              onChange={selectAttachment}
+              multiple
+              onChange={selectAttachments}
               type="file"
             />
           </label>
           <div className="feedback-meta-row">
             <span>{formatNumber(description.length, lang)} / {formatNumber(5000, lang)}</span>
-            {attachment && (
-              <span className="feedback-file-meta">
-                <strong>{attachment.name}</strong>
-                {formatNumber(Math.max(1, Math.ceil(attachment.size / 1024)), lang)} KB
-              </span>
+            {attachments.length > 0 && (
+              <div className="feedback-file-list">
+                {attachments.map((attachment) => (
+                  <span className="feedback-file-meta" key={`${attachment.name}-${attachment.size}-${attachment.lastModified}`}>
+                    <strong>{attachment.name}</strong>
+                    {formatNumber(Math.max(1, Math.ceil(attachment.size / 1024)), lang)} KB
+                    <button
+                      aria-label={`${t.feedbackRemoveAttachment}: ${attachment.name}`}
+                      className="feedback-file-remove"
+                      onClick={() => removeAttachment(attachment)}
+                      title={t.feedbackRemoveAttachment}
+                      type="button"
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+              </div>
             )}
           </div>
           {error && <div className="inline-error">{error}</div>}
@@ -1687,8 +1697,8 @@ function FeedbackReviewPanel({
                 <p>{item.description}</p>
                 <div className="feedback-review-meta">
                   <span><strong>{t.feedbackPackageName}</strong><code>{item.packageName}</code></span>
-                  {item.attachment ? (
-                    <span><strong>{t.feedbackAttachment}</strong><code>{item.attachment.originalName}</code></span>
+                  {item.attachments.length > 0 ? (
+                    <span><strong>{t.feedbackAttachment}</strong><code>{item.attachments.map((attachment) => attachment.originalName).join(", ")}</code></span>
                   ) : (
                     <span><strong>{t.feedbackAttachment}</strong>{t.noData}</span>
                   )}
@@ -1744,9 +1754,15 @@ function FeedbackReviewPanel({
                   </div>
                 )}
               </div>
-              {item.attachment && (
+              {item.attachments.length > 0 && (
                 <div className="feedback-preview">
-                  <img alt={item.attachment.originalName} src={`/api/admin/feedbacks/${item.id}/attachment`} />
+                  {item.attachments.map((attachment) => (
+                    <img
+                      alt={attachment.originalName}
+                      key={attachment.fileName}
+                      src={`/api/admin/feedbacks/${item.id}/attachments/${encodeURIComponent(attachment.fileName)}`}
+                    />
+                  ))}
                 </div>
               )}
             </article>

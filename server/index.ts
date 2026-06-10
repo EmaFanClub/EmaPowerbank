@@ -536,7 +536,7 @@ app.post("/api/feedback", requireSession, asyncHandler(async (req, res) => {
       role: req.user!.role,
     },
     description: payload.description,
-    attachment: payload.attachment,
+    attachments: payload.attachments || [],
   });
 
   res.status(201).json({ feedback });
@@ -556,9 +556,11 @@ app.get("/api/admin/feedbacks/export.csv", requireSession, requireAdmin, asyncHa
   res.send(exportFeedbackCsv(feedbacks));
 }));
 
-app.get("/api/admin/feedbacks/:id/attachment", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+app.get("/api/admin/feedbacks/:id/attachments/:fileName", requireSession, requireAdmin, asyncHandler(async (req, res) => {
   const feedback = await readFeedbackPackage(FEEDBACK_DIR, queryValue(req.params.id));
-  const attachmentPath = resolveFeedbackAttachmentPath(FEEDBACK_DIR, feedback);
+  const fileName = queryValue(req.params.fileName);
+  const attachment = feedback.attachments.find((item) => item.fileName === fileName);
+  const attachmentPath = resolveFeedbackAttachmentPath(FEEDBACK_DIR, feedback, fileName);
   try {
     await fs.promises.access(attachmentPath, fs.constants.R_OK);
   } catch (error) {
@@ -567,7 +569,7 @@ app.get("/api/admin/feedbacks/:id/attachment", requireSession, requireAdmin, asy
     }
     throw error;
   }
-  res.type(feedback.attachment?.mimeType || "application/octet-stream");
+  res.type(attachment?.mimeType || "application/octet-stream");
   res.sendFile(attachmentPath);
 }));
 

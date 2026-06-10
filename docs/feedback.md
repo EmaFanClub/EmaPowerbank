@@ -7,7 +7,7 @@
 反馈表单包含：
 
 - 必填文字描述
-- 可选图片附件
+- 可选图片附件，最多 10 张
 
 反馈通过管理员审核后，会获得一定美元余额奖励。奖励金额由管理员审核时选择，未审核或被拒绝的反馈不会发放奖励。
 
@@ -18,7 +18,7 @@
 表单字段：
 
 - `description`：必填，反馈文字描述，提交前后端都会去除首尾空白，最大 5000 字符
-- `attachment`：可选，图片附件
+- `attachment`：可选，图片附件；可以重复提交该字段，最多 10 张
 
 附件支持常见图片格式：
 
@@ -30,7 +30,7 @@
 - AVIF
 - HEIC / HEIF
 
-单个附件最大 8 MB。前端会先做格式和大小校验，后端仍会再次校验。
+单个附件最大 5 MB。前端会先做格式、数量和大小校验，后端仍会再次校验。
 
 ## 保存位置
 
@@ -62,10 +62,11 @@ feedback/feedback-fb_3d75a673-5aaf-4c60-9342-472feac83378-2026-06-09T13-38-03-36
 feedback.json
 ```
 
-如果用户上传了图片，还会包含一个图片文件，文件名同样包含反馈 id 和时间戳：
+如果用户上传了图片，还会包含一个或多个图片文件，文件名同样包含反馈 id、时间戳和序号：
 
 ```text
-feedback-fb_<uuid>-<timestamp>.<ext>
+feedback-fb_<uuid>-<timestamp>-01.<ext>
+feedback-fb_<uuid>-<timestamp>-02.<ext>
 ```
 
 `feedback.json` 包含：
@@ -75,7 +76,7 @@ feedback-fb_<uuid>-<timestamp>.<ext>
 - `packageName`：反馈包目录名
 - `user`：提交用户的 id、用户名和角色
 - `description`：反馈文字描述
-- `attachment`：附件元数据；没有附件时为 `null`
+- `attachments`：附件元数据数组；没有附件时为空数组
 - `review`：审核状态和奖励信息
 
 附件元数据包含：
@@ -102,9 +103,9 @@ feedback-fb_<uuid>-<timestamp>.<ext>
 
 - 按 `待审核`、`已通过`、`已拒绝` 筛选反馈
 - 每个状态列表按每页 10 条分页，并显示当前页、总页数、总条数
-- 一键导出全部反馈为 CSV，字段为 `user-name`、`user-id`、`description`、`attachment-filename`、`review-status`
+- 一键导出全部反馈为 CSV，字段为 `user-name`、`user-id`、`description`、`attachments-filenames`、`review-status`
 - 查看反馈提交人、提交时间、描述、包名和附件信息
-- 对图片附件进行预览
+- 对图片附件进行横向预览；多张图片超出宽度时可横向滚动
 - 拒绝反馈
 - 通过反馈并发放奖励点数
 
