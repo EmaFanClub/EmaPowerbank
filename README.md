@@ -232,7 +232,7 @@ feedback/
 - Extracted usage and cost
 - Total request duration and timing breakdown
 
-`feedback/` stores one directory per submitted feedback package. Each package directory is named `feedback-<id>-<timestamp>/` and contains `feedback.json` plus the optional uploaded image attachment. The JSON file includes the feedback id, timestamp, submitting user, description, attachment metadata, review status, and reward metadata. Admins can filter feedback by pending, approved, or rejected status; each status list is paginated at 10 items per page. Admins can review feedback, preview image attachments, approve with a non-zero reward amount, or reject without granting balance.
+`feedback/` stores one directory per submitted feedback package. Each package directory is named `feedback-<id>-<timestamp>/` and contains `feedback.json` plus the optional uploaded image attachment. The JSON file includes the feedback id, timestamp, submitting user, description, attachment metadata, review status, and reward metadata. Admins can filter feedback by pending, approved, or rejected status; each status list is paginated at 10 items per page. Admins can export all feedback as CSV with `user-name`, `description`, `attachment-filename`, and `review-status` fields. Admins can review feedback, preview image attachments, approve with a non-zero reward amount, or reject without granting balance.
 
 ## Logs Page
 

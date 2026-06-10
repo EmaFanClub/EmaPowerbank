@@ -436,6 +436,25 @@ export async function listFeedbackPackagePage(
   };
 }
 
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, "\"\"")}"`;
+}
+
+export function exportFeedbackCsv(feedbacks: FeedbackMetadata[]) {
+  const rows = feedbacks.map((feedback) => [
+    csvCell(feedback.user.username),
+    csvCell(feedback.description),
+    csvCell(feedback.attachment?.fileName || ""),
+    csvCell(feedback.review.status),
+  ].join(","));
+
+  return [
+    "user-name,description,attachment-filename,review-status",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
 export async function readFeedbackPackage(feedbackDir: string, id: string) {
   const normalizedId = validateFeedbackId(id);
   const feedbacks = await listFeedbackPackages(feedbackDir, "all");

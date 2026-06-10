@@ -43,8 +43,10 @@ import {
   FEEDBACK_MAX_BODY_BYTES,
   approveFeedbackPackage,
   createFeedbackPackage,
+  exportFeedbackCsv,
   feedbackPayloadFromMultipart,
   listFeedbackPackagePage,
+  listFeedbackPackages,
   multipartBoundary,
   parseMultipartFields,
   readFeedbackPackage,
@@ -545,6 +547,13 @@ app.get("/api/admin/feedbacks", requireSession, requireAdmin, asyncHandler(async
   const requestedPage = queryPositiveInt(req.query.page, 1);
   const pageSize = 10;
   res.json(await listFeedbackPackagePage(FEEDBACK_DIR, status, requestedPage, pageSize));
+}));
+
+app.get("/api/admin/feedbacks/export.csv", requireSession, requireAdmin, asyncHandler(async (req, res) => {
+  const feedbacks = await listFeedbackPackages(FEEDBACK_DIR, "all");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"feedback-export.csv\"");
+  res.send(exportFeedbackCsv(feedbacks));
 }));
 
 app.get("/api/admin/feedbacks/:id/attachment", requireSession, requireAdmin, asyncHandler(async (req, res) => {

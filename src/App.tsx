@@ -14,6 +14,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Copy,
+  Download,
   Eye,
   EyeOff,
   FileText,
@@ -36,6 +37,7 @@ import { api } from "./api";
 import { messages, type Lang, type Messages } from "./i18n";
 import { getErrorMessage } from "./lib/errors";
 import { getFeedbackApprovalDecision } from "./lib/feedbackReview";
+import { navigationItemsForRole, normalizeActivePage, type AppPage } from "./lib/navigation";
 import {
   formatCostWithUsage,
   formatCurrencyInputValue,
@@ -1512,6 +1514,14 @@ function feedbackStatusLabel(status: FeedbackReviewStatus, t: Messages) {
   return t.feedbackStatusPending;
 }
 
+function NavigationIcon({ page }: { page: AppPage }) {
+  if (page === "admin") return <Shield size={18} aria-hidden="true" />;
+  if (page === "requestLogs") return <FileText size={18} aria-hidden="true" />;
+  if (page === "feedback") return <MessageSquare size={18} aria-hidden="true" />;
+  if (page === "feedbackReview") return <ClipboardCheck size={18} aria-hidden="true" />;
+  return <UserRound size={18} aria-hidden="true" />;
+}
+
 function FeedbackReviewPanel({
   reload,
   t,
@@ -1636,6 +1646,10 @@ function FeedbackReviewPanel({
           <span className="eyebrow">{t.feedback}</span>
           <h2>{t.feedbackReview}</h2>
         </div>
+        <a className="primary-btn compact-action" href="/api/admin/feedbacks/export.csv" download="feedback-export.csv">
+          <Download size={17} aria-hidden="true" />
+          {t.feedbackExportCsv}
+        </a>
       </div>
       <div className="feedback-review-filters segmented compact" role="tablist" aria-label={t.feedbackReviewStatus}>
         {(["pending", "approved", "rejected"] as FeedbackReviewStatus[]).map((item) => (
@@ -2130,7 +2144,7 @@ function AdminPanel({
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState<"dashboard" | "admin" | "requestLogs" | "feedback" | "feedbackReview">("dashboard");
+  const [active, setActive] = useState<AppPage>("dashboard");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [error, setError] = useState("");
@@ -2207,8 +2221,8 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     setError("");
-    if (user.role !== "admin" && (active === "admin" || active === "feedbackReview")) setActive("dashboard");
-    if (user.role === "admin" && active === "feedback") setActive("feedbackReview");
+    const normalizedActive = normalizeActivePage(user.role, active);
+    if (normalizedActive !== active) setActive(normalizedActive);
     loadDashboard().catch((err) => setError(getErrorMessage(err)));
     if (user.role === "admin") loadAdmin().catch((err) => setError(getErrorMessage(err)));
   }, [user]);
@@ -2235,6 +2249,14 @@ export default function App() {
     );
   }
 
+  const navigationLabels: Record<AppPage, string> = {
+    dashboard: t.dashboard,
+    admin: t.admin,
+    requestLogs: t.requestLogs,
+    feedback: t.feedback,
+    feedbackReview: t.feedbackReview,
+  };
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -2242,31 +2264,12 @@ export default function App() {
           <span>Ema Powerbank</span>
         </div>
         <nav>
-          <button className={active === "dashboard" ? "active" : ""} onClick={() => setActive("dashboard")} type="button">
-            <UserRound size={18} aria-hidden="true" />
-            {t.dashboard}
-          </button>
-          {user.role === "admin" && (
-            <button className={active === "admin" ? "active" : ""} onClick={() => setActive("admin")} type="button">
-              <Shield size={18} aria-hidden="true" />
-              {t.admin}
+          {navigationItemsForRole(user.role).map((item) => (
+            <button className={active === item.id ? "active" : ""} key={item.id} onClick={() => setActive(item.id)} type="button">
+              <NavigationIcon page={item.id} />
+              {navigationLabels[item.id]}
             </button>
-          )}
-          <button className={active === "requestLogs" ? "active" : ""} onClick={() => setActive("requestLogs")} type="button">
-            <FileText size={18} aria-hidden="true" />
-            {t.requestLogs}
-          </button>
-          {user.role === "admin" ? (
-            <button className={active === "feedbackReview" ? "active" : ""} onClick={() => setActive("feedbackReview")} type="button">
-              <ClipboardCheck size={18} aria-hidden="true" />
-              {t.feedbackReview}
-            </button>
-          ) : (
-            <button className={active === "feedback" ? "active" : ""} onClick={() => setActive("feedback")} type="button">
-              <MessageSquare size={18} aria-hidden="true" />
-              {t.feedback}
-            </button>
-          )}
+          ))}
         </nav>
       </aside>
       <section className="content">
