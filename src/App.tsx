@@ -42,6 +42,7 @@ import { getErrorMessage } from "./lib/errors";
 import {
   createFeedbackAttachmentPreviews,
   FEEDBACK_IMAGE_ACCEPT,
+  feedbackImageFilesFromClipboard,
   hasFeedbackDragFiles,
   mergeFeedbackAttachmentSelection,
   revokeFeedbackAttachmentPreviews,
@@ -765,11 +766,57 @@ function ApiTestPanel({
   );
 }
 
+interface FeedbackPreviewImage {
+  src: string;
+  alt: string;
+  caption: string;
+}
+
+function FeedbackImageLightbox({
+  image,
+  onClose,
+  t,
+}: {
+  image: FeedbackPreviewImage | null;
+  onClose: () => void;
+  t: Messages;
+}) {
+  useEffect(() => {
+    if (!image) return undefined;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [image, onClose]);
+
+  if (!image) return null;
+
+  function closeFromBackdrop(event: MouseEvent<HTMLDivElement>) {
+    if (event.target === event.currentTarget) onClose();
+  }
+
+  return (
+    <div className="feedback-image-lightbox" onMouseDown={closeFromBackdrop} role="presentation">
+      <figure className="feedback-image-lightbox-panel" role="dialog" aria-modal="true" aria-label={t.feedbackPreview}>
+        <button className="feedback-image-lightbox-close" onClick={onClose} title={t.cancel} type="button">
+          <X size={18} aria-hidden="true" />
+        </button>
+        <img alt={image.alt} src={image.src} />
+        <figcaption>{image.caption}</figcaption>
+      </figure>
+    </div>
+  );
+}
+
 function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
   const [description, setDescription] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachmentPreviews, setAttachmentPreviews] = useState(() => createFeedbackAttachmentPreviews([]));
   const [dragOverlayVisible, setDragOverlayVisible] = useState(false);
+  const [previewImage, setPreviewImage] = useState<FeedbackPreviewImage | null>(null);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -846,6 +893,18 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
     };
   }, [applyAttachmentSelection]);
 
+  useEffect(() => {
+    function handlePaste(event: ClipboardEvent) {
+      const files = feedbackImageFilesFromClipboard(event.clipboardData);
+      if (files.length === 0) return;
+      event.preventDefault();
+      applyAttachmentSelection(files);
+    }
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [applyAttachmentSelection]);
+
   function selectAttachments(event: ChangeEvent<HTMLInputElement>) {
     applyAttachmentSelection(Array.from(event.target.files || []));
   }
@@ -904,17 +963,22 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
         <form className="feedback-form" onSubmit={submitFeedback}>
           <label>
             {t.feedbackDescription}
-            <textarea
-              maxLength={5000}
-              required
-              value={description}
-              placeholder={t.feedbackDescriptionPlaceholder}
-              onChange={(event) => {
-                setDescription(event.target.value);
-                setError("");
-                setSubmitted(false);
-              }}
-            />
+            <span className="feedback-description-wrap">
+              <textarea
+                maxLength={5000}
+                required
+                value={description}
+                placeholder={t.feedbackDescriptionPlaceholder}
+                onChange={(event) => {
+                  setDescription(event.target.value);
+                  setError("");
+                  setSubmitted(false);
+                }}
+              />
+              <span className="feedback-character-count">
+                {formatNumber(description.length, lang)} / {formatNumber(5000, lang)}
+              </span>
+            </span>
           </label>
           <div className="feedback-field">
             <span className="feedback-field-label">{t.feedbackAttachment}</span>
@@ -933,14 +997,19 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
               <span className="feedback-upload-hint">{t.feedbackDragPrompt}</span>
             </span>
           </div>
-          <div className="feedback-meta-row">
-            <span>{formatNumber(description.length, lang)} / {formatNumber(5000, lang)}</span>
-          </div>
           {attachmentPreviews.length > 0 && (
             <div className="feedback-local-preview" aria-label={t.feedbackPreview}>
               {attachmentPreviews.map((preview) => (
                 <figure className="feedback-local-preview-item" key={preview.key}>
-                  <img alt={preview.file.name} src={preview.url} />
+                  <button
+                    aria-label={`${t.feedbackPreview}: ${preview.file.name}`}
+                    className="feedback-thumbnail-button"
+                    onClick={() => setPreviewImage({ src: preview.url, alt: preview.file.name, caption: preview.file.name })}
+                    title={t.feedbackPreview}
+                    type="button"
+                  >
+                    <img alt={preview.file.name} src={preview.url} />
+                  </button>
                   <figcaption>
                     <span>{preview.file.name}</span>
                     <button
@@ -978,6 +1047,7 @@ function FeedbackPanel({ t, lang }: { t: Messages; lang: Lang }) {
           </div>
         </div>
       )}
+      <FeedbackImageLightbox image={previewImage} onClose={() => setPreviewImage(null)} t={t} />
     </div>
   );
 }
@@ -1637,6 +1707,7 @@ function FeedbackReviewPanel({
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [previewImage, setPreviewImage] = useState<FeedbackPreviewImage | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1846,13 +1917,24 @@ function FeedbackReviewPanel({
               </div>
               {item.attachments.length > 0 && (
                 <div className="feedback-preview">
-                  {item.attachments.map((attachment) => (
-                    <img
-                      alt={attachment.originalName}
-                      key={attachment.fileName}
-                      src={`/api/admin/feedbacks/${item.id}/attachments/${encodeURIComponent(attachment.fileName)}`}
-                    />
-                  ))}
+                  {item.attachments.map((attachment) => {
+                    const imageSrc = `/api/admin/feedbacks/${item.id}/attachments/${encodeURIComponent(attachment.fileName)}`;
+                    return (
+                      <button
+                        aria-label={`${t.feedbackPreview}: ${attachment.originalName}`}
+                        className="feedback-thumbnail-button"
+                        key={attachment.fileName}
+                        onClick={() => setPreviewImage({ src: imageSrc, alt: attachment.originalName, caption: attachment.originalName })}
+                        title={t.feedbackPreview}
+                        type="button"
+                      >
+                        <img
+                          alt={attachment.originalName}
+                          src={imageSrc}
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </article>
@@ -1868,6 +1950,7 @@ function FeedbackReviewPanel({
           <ChevronRight size={17} aria-hidden="true" />
         </button>
       </div>
+      <FeedbackImageLightbox image={previewImage} onClose={() => setPreviewImage(null)} t={t} />
     </section>
   );
 }

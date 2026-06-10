@@ -29,6 +29,12 @@ Ema Powerbank is a Gemini API token relay built with TypeScript, React, Express,
 
 Node.js 20 or newer is recommended.
 
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [System architecture](docs/architecture.md)
+- [Feedback feature guide](docs/feedback.md)
+
 ## Quick Start
 
 ```bash

@@ -4,6 +4,16 @@ export const FEEDBACK_IMAGE_ACCEPT = "image/png,image/jpeg,image/gif,image/webp,
 
 const FEEDBACK_IMAGE_NAME_PATTERN = /\.(png|jpe?g|gif|webp|bmp|avif|hei[cf])$/i;
 const FEEDBACK_IMAGE_TYPES = new Set(FEEDBACK_IMAGE_ACCEPT.split(","));
+const CLIPBOARD_IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/bmp": "bmp",
+  "image/avif": "avif",
+  "image/heic": "heic",
+  "image/heif": "heif",
+};
 
 export type FeedbackAttachmentSelectionError = "tooMany" | "invalidType" | "tooLarge";
 
@@ -30,6 +40,36 @@ export function hasFeedbackDragFiles(types: Iterable<string> | ArrayLike<string>
   const maybeDomStringList = types as { contains?: (value: string) => boolean };
   if (typeof maybeDomStringList.contains === "function") return maybeDomStringList.contains("Files");
   return Array.from(types).includes("Files");
+}
+
+function clipboardImageFileName(type: string, index: number) {
+  const extension = CLIPBOARD_IMAGE_EXTENSIONS[type] || "png";
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `clipboard-image-${timestamp}-${String(index + 1).padStart(2, "0")}.${extension}`;
+}
+
+function normalizeClipboardImageFile(file: File, index: number) {
+  if (file.name && FEEDBACK_IMAGE_NAME_PATTERN.test(file.name)) return file;
+  return new File([file], clipboardImageFileName(file.type, index), {
+    type: file.type || "image/png",
+    lastModified: file.lastModified || Date.now(),
+  });
+}
+
+export function feedbackImageFilesFromClipboard(clipboardData: DataTransfer | null | undefined) {
+  if (!clipboardData) return [];
+
+  const files: File[] = [];
+  for (const item of Array.from(clipboardData.items || [])) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (file) files.push(normalizeClipboardImageFile(file, files.length));
+  }
+
+  if (files.length > 0) return files;
+  return Array.from(clipboardData.files || [])
+    .filter((file) => file.type.startsWith("image/"))
+    .map((file, index) => normalizeClipboardImageFile(file, index));
 }
 
 export function createFeedbackAttachmentPreviews(
